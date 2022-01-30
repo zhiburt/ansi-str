@@ -2211,37 +2211,37 @@ mod tests {
 
     #[test]
     fn split_at_color_preservation_test() {
-        // assert_eq!(
-        //     "\u{1b}[30mTEXT\u{1b}[39m".ansi_split_at(2),
-        //     ("\u{1b}[30mTE\u{1b}[39m".to_owned(), "\u{1b}[30mXT\u{1b}[39m".to_owned()),
-        // );
-        // assert_eq!(
-        //     "\u{1b}[38;2;12mTEXT\u{1b}[39m".ansi_split_at(2),
-        //     (
-        //         "\u{1b}[38;2;12mTE\u{1b}[39m".to_owned(),
-        //         "\u{1b}[38;2;12mXT\u{1b}[39m".to_owned()
-        //     ),
-        // );
-        // assert_eq!(
-        //     "\u{1b}[38;5;100;123;1mTEXT\u{1b}[39m".ansi_split_at(2),
-        //     (
-        //         "\u{1b}[38;5;100;123;1mTE\u{1b}[39m".to_owned(),
-        //         "\u{1b}[38;5;100;123;1mXT\u{1b}[39m".to_owned()
-        //     ),
-        // );
-        // assert_eq!(
-        //     "\u{1b}[38;2;30mTEXT\u{1b}[39m".ansi_split_at(2),
-        //     (
-        //         "\u{1b}[38;2;30mTE\u{1b}[39m".to_owned(),
-        //         "\u{1b}[38;2;30mXT\u{1b}[39m".to_owned()
-        //     ),
-        // );
         assert_eq!(
-            "\u{1b}[48;2;023;011;100m\u{1b}[31mHello\u{1b}[39m\u{1b}[49m \u{1b}[32;43mWorld\u{1b}[0m".ansi_split_at(6),
+            "\u{1b}[30mTEXT\u{1b}[39m".ansi_split_at(2),
+            (
+                "\u{1b}[30mTE\u{1b}[39m".to_owned(),
+                "\u{1b}[30mXT\u{1b}[39m".to_owned()
+            ),
+        );
+        assert_eq!(
+            "\u{1b}[38;2;12mTEXT\u{1b}[39m".ansi_split_at(2),
+            (
+                "\u{1b}[38;2;12mTE\u{1b}[39m".to_owned(),
+                "\u{1b}[38;2;12mXT\u{1b}[39m".to_owned()
+            ),
+        );
+        assert_eq!(
+            "\u{1b}[38;5;100;123;1mTEXT\u{1b}[39m".ansi_split_at(2),
+            (
+                "\u{1b}[38;5;100;123;1mTE\u{1b}[39m".to_owned(),
+                "\u{1b}[38;5;100;123;1mXT\u{1b}[39m".to_owned()
+            ),
+        );
+        assert_eq!(
+            "\u{1b}[38;2;30mTEXT\u{1b}[39m".ansi_split_at(2),
             (
                 "\u{1b}[38;2;30mTE\u{1b}[39m".to_owned(),
                 "\u{1b}[38;2;30mXT\u{1b}[39m".to_owned()
             ),
+        );
+        assert_eq!(
+            "\u{1b}[48;5;023;011;100m\u{1b}[31mHello\u{1b}[39m\u{1b}[49m \u{1b}[32;43mWorld\u{1b}[0m".ansi_split_at(6),
+            ("\u{1b}[31m\u{1b}[48;5;23;11;100mHello\u{1b}[39m\u{1b}[49m ".to_owned(), "\u{1b}[32m\u{1b}[43mWorld\u{1b}[39m\u{1b}[49m".to_owned()),
         );
     }
 }
