@@ -1,0 +1,20 @@
+[package]
+name = "ansi-str"
+version = "0.1.0"
+edition = "2021"
+authors = ["Maxim Zhiburt <zhiburt@gmail.com>"]
+description = "A library which provides a set of methods to work with ANSI colored strings"
+repository = "https://github.com/zhiburt/ansi-str"
+homepage = "https://github.com/zhiburt/ansi-str"
+documentation = "https://docs.rs/ansi-str"
+license = "MIT"
+keywords = ["cli", "color", "ansi", "terminal", "ansi_term"]
+categories = ["text-processing", "command-line-interface"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ansi-parser = "0.8.0"
+
+[dev-dependencies]
+owo-colors = "3.2.0"
