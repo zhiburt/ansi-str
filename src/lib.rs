@@ -971,10 +971,14 @@ fn update_ansi_state(state: &mut AnsiState, mode: &[u8]) {
                 state.fg_color = Some(AnsiColor::Bit4 { index: n });
             }
             38 => {
-                if let Some((color, n)) = parse_ansi_color(ptr) {
-                    state.fg_color = Some(color);
-                    ptr = &ptr[n..];
+                if ptr.len() > 2 {
+                    if let Some((color, n)) = parse_ansi_color(&ptr[1..]) {
+                        state.fg_color = Some(color);
+                        ptr = &ptr[n..];
+                    }
                 }
+
+                // fixme: if connditions are not meat we must set unknown
             }
             39 => {
                 state.fg_color = None;
@@ -983,9 +987,11 @@ fn update_ansi_state(state: &mut AnsiState, mode: &[u8]) {
                 state.bg_color = Some(AnsiColor::Bit4 { index: n });
             }
             48 => {
-                if let Some((color, n)) = parse_ansi_color(ptr) {
-                    state.bg_color = Some(color);
-                    ptr = &ptr[n..];
+                if ptr.len() > 2 {
+                    if let Some((color, n)) = parse_ansi_color(&ptr[1..]) {
+                        state.bg_color = Some(color);
+                        ptr = &ptr[n..];
+                    }
                 }
             }
             49 => {
@@ -1011,9 +1017,11 @@ fn update_ansi_state(state: &mut AnsiState, mode: &[u8]) {
                 state.overlined = false;
             }
             58 => {
-                if let Some((color, n)) = parse_ansi_color(ptr) {
-                    state.undr_color = Some(color);
-                    ptr = &ptr[n..];
+                if ptr.len() > 2 {
+                    if let Some((color, n)) = parse_ansi_color(&ptr[1..]) {
+                        state.undr_color = Some(color);
+                        ptr = &ptr[n..];
+                    }
                 }
             }
             59 => {
@@ -1060,16 +1068,20 @@ fn update_ansi_state(state: &mut AnsiState, mode: &[u8]) {
     }
 }
 
+// ansi parser skips `;` chars
+//
+// todo: open issue in ansi parse
+// because it provides not bytes as they appear but bytes as parsed ints
 fn parse_ansi_color(buf: &[u8]) -> Option<(AnsiColor, usize)> {
     match buf {
-        [b'2', b';', index, ..] => Some((AnsiColor::Bit8 { index: *index }, 3)),
-        [b'5', b';', r, b';', g, b';', b, ..] => Some((
+        [2, index, ..] => Some((AnsiColor::Bit8 { index: *index }, 2)),
+        [5, r, g, b, ..] => Some((
             AnsiColor::Bit24 {
                 r: *r,
                 g: *g,
                 b: *b,
             },
-            7,
+            4,
         )),
         _ => None,
     }
@@ -1228,8 +1240,16 @@ fn begin_ansi_sequences(state: &AnsiState, buf: &mut String) {
     if let Some(color) = &state.fg_color {
         match color {
             AnsiColor::Bit4 { index } => emit_str!(&format!("{}", index)),
-            AnsiColor::Bit8 { index } => emit_str!(&format!("2;{}", index)),
-            AnsiColor::Bit24 { r, g, b } => emit_str!(&format!("5;{};{};{}", r, g, b)),
+            AnsiColor::Bit8 { index } => emit_str!(&format!("38;2;{}", index)),
+            AnsiColor::Bit24 { r, g, b } => emit_str!(&format!("38;5;{};{};{}", r, g, b)),
+        }
+    }
+
+    if let Some(color) = &state.bg_color {
+        match color {
+            AnsiColor::Bit4 { index } => emit_str!(&format!("{}", index)),
+            AnsiColor::Bit8 { index } => emit_str!(&format!("48;2;{}", index)),
+            AnsiColor::Bit24 { r, g, b } => emit_str!(&format!("48;5;{};{};{}", r, g, b)),
         }
     }
 
@@ -1312,20 +1332,13 @@ mod tests {
     #[test]
     fn parse_ansi_color_test() {
         let tests: Vec<(&[u8], _)> = vec![
-            (&[b'2', b';', 200], Some(AnsiColor::Bit8 { index: 200 })),
+            (&[2, 200], Some(AnsiColor::Bit8 { index: 200 })),
+            (&[2, 100, 123, 39], Some(AnsiColor::Bit8 { index: 100 })),
+            (&[2, 100, 1, 2, 3], Some(AnsiColor::Bit8 { index: 100 })),
+            (&[2, 1, 2, 3], Some(AnsiColor::Bit8 { index: 1 })),
+            (&[2], None),
             (
-                &[b'2', b';', 100, b';', 123, b';', 39],
-                Some(AnsiColor::Bit8 { index: 100 }),
-            ),
-            (
-                &[b'2', b';', 100, 1, 2, 3],
-                Some(AnsiColor::Bit8 { index: 100 }),
-            ),
-            (&[b'2', b';'], None),
-            (&[b'2', 1, 2, 3], None),
-            (&[b'2'], None),
-            (
-                &[b'5', b';', 100, b';', 123, b';', 39],
+                &[5, 100, 123, 39],
                 Some(AnsiColor::Bit24 {
                     r: 100,
                     g: 123,
@@ -1333,7 +1346,7 @@ mod tests {
                 }),
             ),
             (
-                &[b'5', b';', 100, b';', 123, b';', 39, 1, 2, 3],
+                &[5, 100, 123, 39, 1, 2, 3],
                 Some(AnsiColor::Bit24 {
                     r: 100,
                     g: 123,
@@ -1341,19 +1354,16 @@ mod tests {
                 }),
             ),
             (
-                &[b'5', b';', 100, b';', 123, b';', 39, 1, 2, 3],
+                &[5, 100, 123, 39, 1, 2, 3],
                 Some(AnsiColor::Bit24 {
                     r: 100,
                     g: 123,
                     b: 39,
                 }),
             ),
-            (&[b'5', b';', 100, b';', 123, b';'], None),
-            (&[b'5', b';', 100, b';', 123], None),
-            (&[b'5', b';', 100, b';'], None),
-            (&[b'5', b';', 100], None),
-            (&[b'5', b';'], None),
-            (&[b'5'], None),
+            (&[5, 100, 123], None),
+            (&[5, 100], None),
+            (&[5], None),
             (&[], None),
         ];
 
@@ -1618,18 +1628,17 @@ mod tests {
                 "\u{1b}[41;30msomething\u{1b}[39m \u{1b}[34m123123\u{1b}[39;49m",
             ] {
                 assert_eq!(
-                    ("".to_owned(), "\u{1b}[30msomething\u{1b}[39m\u{1b}[49m \u{1b}[49m\u{1b}[34m123123\u{1b}[39m\u{1b}[49m".to_owned()),
+                    ("".to_owned(), "\u{1b}[30m\u{1b}[41msomething\u{1b}[39m\u{1b}[49m\u{1b}[41m \u{1b}[49m\u{1b}[34m\u{1b}[41m123123\u{1b}[39m\u{1b}[49m".to_owned()),
                     colored_s.ansi_split_at(0)
                 );
                 assert_eq!(
-                    ("\u{1b}[30mso\u{1b}[39m\u{1b}[49m".to_owned(), "\u{1b}[30mmething\u{1b}[39m\u{1b}[49m \u{1b}[49m\u{1b}[34m123123\u{1b}[39m\u{1b}[49m".to_owned()),
+                    ("\u{1b}[30m\u{1b}[41mso\u{1b}[39m\u{1b}[49m".to_owned(), "\u{1b}[30m\u{1b}[41mmething\u{1b}[39m\u{1b}[49m\u{1b}[41m \u{1b}[49m\u{1b}[34m\u{1b}[41m123123\u{1b}[39m\u{1b}[49m".to_owned()),
                     colored_s.ansi_split_at(2)
                 );
                 assert_eq!(
                     (
-                        "\u{1b}[30msomethi\u{1b}[39m\u{1b}[49m".to_owned(),
-                        "\u{1b}[30mng\u{1b}[39m\u{1b}[49m \u{1b}[49m\u{1b}[34m123123\u{1b}[39m\u{1b}[49m"
-                            .to_owned()
+                        "\u{1b}[30m\u{1b}[41msomethi\u{1b}[39m\u{1b}[49m".to_owned(),
+                        "\u{1b}[30m\u{1b}[41mng\u{1b}[39m\u{1b}[49m\u{1b}[41m \u{1b}[49m\u{1b}[34m\u{1b}[41m123123\u{1b}[39m\u{1b}[49m".to_owned(),
                     ),
                     colored_s.ansi_split_at(7)
                 );
@@ -2197,6 +2206,42 @@ mod tests {
         assert_eq!(
             vec![text.to_owned()],
             text.ansi_split("NOT FOUND").collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn split_at_color_preservation_test() {
+        // assert_eq!(
+        //     "\u{1b}[30mTEXT\u{1b}[39m".ansi_split_at(2),
+        //     ("\u{1b}[30mTE\u{1b}[39m".to_owned(), "\u{1b}[30mXT\u{1b}[39m".to_owned()),
+        // );
+        // assert_eq!(
+        //     "\u{1b}[38;2;12mTEXT\u{1b}[39m".ansi_split_at(2),
+        //     (
+        //         "\u{1b}[38;2;12mTE\u{1b}[39m".to_owned(),
+        //         "\u{1b}[38;2;12mXT\u{1b}[39m".to_owned()
+        //     ),
+        // );
+        // assert_eq!(
+        //     "\u{1b}[38;5;100;123;1mTEXT\u{1b}[39m".ansi_split_at(2),
+        //     (
+        //         "\u{1b}[38;5;100;123;1mTE\u{1b}[39m".to_owned(),
+        //         "\u{1b}[38;5;100;123;1mXT\u{1b}[39m".to_owned()
+        //     ),
+        // );
+        // assert_eq!(
+        //     "\u{1b}[38;2;30mTEXT\u{1b}[39m".ansi_split_at(2),
+        //     (
+        //         "\u{1b}[38;2;30mTE\u{1b}[39m".to_owned(),
+        //         "\u{1b}[38;2;30mXT\u{1b}[39m".to_owned()
+        //     ),
+        // );
+        assert_eq!(
+            "\u{1b}[48;2;023;011;100m\u{1b}[31mHello\u{1b}[39m\u{1b}[49m \u{1b}[32;43mWorld\u{1b}[0m".ansi_split_at(6),
+            (
+                "\u{1b}[38;2;30mTE\u{1b}[39m".to_owned(),
+                "\u{1b}[38;2;30mXT\u{1b}[39m".to_owned()
+            ),
         );
     }
 }
