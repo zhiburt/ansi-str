@@ -34,6 +34,9 @@
 // todo: refactoring to use an iterator over chars and it hold a state for each of the chars?
 // todo: Maybe it's worth to create some type like AnsiString which would not necessarily allocate String underthehood
 
+// todo: Quickcheck tests
+// todo: README.md
+
 use ansi_parser::AnsiSequence;
 use ansi_parser::{AnsiParser, Output};
 use std::ops::{Bound, RangeBounds};
