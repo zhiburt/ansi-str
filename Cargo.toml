@@ -1,6 +1,6 @@
 [package]
 name = "ansi-str"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Maxim Zhiburt <zhiburt@gmail.com>"]
 description = "A library which provides a set of methods to work with ANSI strings"
