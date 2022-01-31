@@ -10,14 +10,14 @@ use owo_colors::{colors::*, OwoColorize};
 
 pub fn main() {
     let colored_text = "When the night has come"
-        .fg::<Black>()
-        .bg::<White>()
+        .fg::<Red>()
+        .bg::<Cyan>()
         .bold()
-        .blink()
         .to_string();
 
     let s = colored_text.ansi_get(5..).unwrap();
 
+    println!("{}", colored_text);
     println!("{}", s);
 }
 ```
