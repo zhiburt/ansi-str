@@ -2,6 +2,9 @@
 
 This is a library for work with coloured and formatted strings on ANSI terminals.
 
+Its a library agnostic library.
+Therefore it can be used with any ansi color library. (e.g. [owo-colors](https://crates.io/crates/owo-colors), [nu-ansi-term](https://crates.io/crates/nu-ansi-term)).
+
 ## Usage
 
 ```rust
