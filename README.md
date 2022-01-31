@@ -22,9 +22,14 @@ pub fn main() {
 }
 ```
 
+Running this code will result in the following output.
+
+![image](https://user-images.githubusercontent.com/20165848/151773080-d588a474-f43c-47b3-a29d-a92f19554907.png)
+
+
 ##### [For more examples, you check the directory of the same name.](https://github.com/zhiburt/ansi-str/tree/master/examples).
 
-##### You can find a list of methods which are provided on [the documentation page](https://docs.rs/ansi_cut/*/ansi_str/).
+##### You can find a list of methods which are provided by the library on [the documentation page](https://docs.rs/ansi_cut/*/ansi_str/).
 
 ### Note
 
