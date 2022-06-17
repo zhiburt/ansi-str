@@ -15,6 +15,14 @@ categories = ["text-processing", "command-line-interface"]
 
 [dependencies]
 ansi-parser = "0.8.0"
+unicode-width = { version = "0.1.9", optional = true }
 
 [dev-dependencies]
 owo-colors = "3.2.0"
+
+[features]
+default = []
+width = ["unicode-width"]
+
+[package.metadata.docs.rs]
+all-features = true
