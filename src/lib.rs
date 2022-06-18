@@ -890,21 +890,19 @@ pub struct AnsiSplit<'a> {
     text: &'a str,
     pat: &'a str,
     offset: usize,
-    iter: std::vec::IntoIter<String>,
+    stripped_text: String,
+    finished: bool,
 }
 
 impl<'a> AnsiSplit<'a> {
     fn new(pat: &'a str, text: &'a str) -> Self {
+        let stripped_text = text.ansi_strip();
         Self {
             text,
             pat,
             offset: 0,
-            iter: text
-                .ansi_strip()
-                .split(pat)
-                .map(|s| s.to_owned())
-                .collect::<Vec<_>>()
-                .into_iter(),
+            stripped_text,
+            finished: false,
         }
     }
 }
@@ -913,11 +911,41 @@ impl<'a> Iterator for AnsiSplit<'a> {
     type Item = String;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let part = self.iter.next()?;
-        let bound = self.offset + part.len();
-        let part = self.text.ansi_get(self.offset..bound).unwrap();
-        self.offset = bound + self.pat.len();
-        Some(part)
+        if self.finished {
+            return None;
+        }
+
+        // special case to match std::str::split
+        if self.pat.is_empty() {
+            if self.offset == 0 {
+                self.offset += 1;
+                return Some("".to_string());
+            }
+
+            if self.offset == self.stripped_text.len() + 1 {
+                self.finished = true;
+                return Some("".to_string());
+            }
+
+            let c = self.text.ansi_get(self.offset - 1..self.offset).unwrap();
+            self.offset += 1;
+            return Some(c);
+        }
+
+        let index = self.stripped_text[self.offset..].find(&self.pat);
+        match index {
+            Some(index) => {
+                let bound = self.offset + index;
+                let part = self.text.ansi_get(self.offset..bound).unwrap();
+                self.offset = bound + self.pat.len();
+                Some(part)
+            }
+            None => {
+                let part = self.text.ansi_get(self.offset..).unwrap();
+                self.finished = true;
+                Some(part)
+            }
+        }
     }
 }
 
@@ -2202,6 +2230,10 @@ mod tests {
 
     #[test]
     fn split_test() {
+        assert_eq!(
+            "213".split("").collect::<Vec<_>>(),
+            "213".ansi_split("").collect::<Vec<_>>()
+        );
         assert_eq!(
             "".split("").collect::<Vec<_>>(),
             "".ansi_split("").collect::<Vec<_>>()
