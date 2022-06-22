@@ -39,6 +39,7 @@
 
 use ansi_parser::AnsiSequence;
 use ansi_parser::{AnsiParser, Output};
+use std::borrow::Cow;
 use std::fmt::Write;
 use std::ops::{Bound, RangeBounds};
 
@@ -225,11 +226,13 @@ pub trait AnsiStr {
     /// ```
     /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
-    /// let v: Vec<String> = "Mary had a little lamb"
-    ///     .red()
-    ///     .to_string()
+    ///
+    /// let text = "Mary had a little lamb".red().to_string();
+    ///
+    /// let v: Vec<_> = text
     ///     .ansi_split(" ")
     ///     .collect();
+    ///
     /// assert_eq!(
     ///     v,
     ///     [
@@ -241,13 +244,15 @@ pub trait AnsiStr {
     ///     ]
     /// );
     ///
-    /// let v: Vec<String> = "".ansi_split("X").collect();
+    /// let v: Vec<_> = "".ansi_split("X").collect();
     /// assert_eq!(v, [""]);
     ///
-    /// let v: Vec<String> = "lionXXtigerXleopard".red().to_string().ansi_split("X").collect();
-    /// assert_eq!(v, ["lion".red().to_string(), "".red().to_string(), "tiger".red().to_string(), "leopard".red().to_string()]);
+    /// let text = "lionXXtigerXleopard".red().to_string();
+    /// let v: Vec<_> = text.ansi_split("X").collect();
+    /// assert_eq!(v, ["lion".red().to_string(), "".to_string(), "tiger".red().to_string(), "leopard".red().to_string()]);
     ///
-    /// let v: Vec<String> = "lion::tiger::leopard".red().to_string().ansi_split("::").collect();
+    /// let text = "lion::tiger::leopard".red().to_string();
+    /// let v: Vec<_> = text.ansi_split("::").collect();
     /// assert_eq!(v, ["lion".red().to_string(), "tiger".red().to_string(), "leopard".red().to_string()]);
     /// ```
     fn ansi_split<'a>(&'a self, pat: &'a str) -> AnsiSplit<'a>;
@@ -545,7 +550,7 @@ where
 }
 
 fn cut_str(string: &str, lower_bound: usize, upper_bound: Option<usize>) -> String {
-    let mut asci_state = AnsiState::default();
+    let mut ansi_state = AnsiState::default();
     let tokens = string.ansi_parse();
     let mut buf = String::new();
     let mut index = 0;
@@ -590,19 +595,19 @@ fn cut_str(string: &str, lower_bound: usize, upper_bound: Option<usize>) -> Stri
             Output::Escape(seq) => {
                 write_list!(buf, seq);
                 if let AnsiSequence::SetGraphicsMode(v) = seq {
-                    update_ansi_state(&mut asci_state, v.as_ref());
+                    update_ansi_state(&mut ansi_state, v.as_ref());
                 }
             }
         }
     }
 
-    complete_ansi_sequences(&asci_state, &mut buf);
+    complete_ansi_sequences(&ansi_state, &mut buf);
 
     buf
 }
 
 fn get(string: &str, lower_bound: Option<usize>, upper_bound: Option<usize>) -> Option<String> {
-    let mut asci_state = AnsiState::default();
+    let mut ansi_state = AnsiState::default();
     let tokens = string.ansi_parse();
     let mut buf = String::new();
     let mut index = 0;
@@ -643,13 +648,13 @@ fn get(string: &str, lower_bound: Option<usize>, upper_bound: Option<usize>) -> 
             Output::Escape(seq) => {
                 write_list!(buf, seq);
                 if let AnsiSequence::SetGraphicsMode(v) = seq {
-                    update_ansi_state(&mut asci_state, v.as_ref());
+                    update_ansi_state(&mut ansi_state, v.as_ref());
                 }
             }
         }
     }
 
-    complete_ansi_sequences(&asci_state, &mut buf);
+    complete_ansi_sequences(&ansi_state, &mut buf);
 
     Some(buf)
 }
@@ -887,65 +892,51 @@ fn has_any(text: &str) -> bool {
 }
 
 pub struct AnsiSplit<'a> {
-    text: &'a str,
-    pat: &'a str,
-    offset: usize,
-    stripped_text: String,
-    finished: bool,
+    split_iter: std::str::Split<'a, &'a str>,
+    ansi_state: AnsiState,
 }
 
 impl<'a> AnsiSplit<'a> {
     fn new(pat: &'a str, text: &'a str) -> Self {
-        let stripped_text = text.ansi_strip();
         Self {
-            text,
-            pat,
-            offset: 0,
-            stripped_text,
-            finished: false,
+            ansi_state: AnsiState::default(),
+            split_iter: text.split(pat),
         }
     }
 }
 
 impl<'a> Iterator for AnsiSplit<'a> {
-    type Item = String;
+    type Item = Cow<'a, str>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.finished {
-            return None;
+        let mut part = Cow::Borrowed(self.split_iter.next()?);
+        if part.is_empty() {
+            return Some(part);
         }
 
-        // special case to match std::str::split
-        if self.pat.is_empty() {
-            if self.offset == 0 {
-                self.offset += 1;
-                return Some("".to_string());
-            }
+        if is_ansi_state_set(&self.ansi_state) {
+            let mut part_o = String::new();
+            begin_ansi_sequences(&self.ansi_state, &mut part_o);
+            part_o.push_str(&part);
 
-            if self.offset == self.stripped_text.len() + 1 {
-                self.finished = true;
-                return Some("".to_string());
-            }
-
-            let c = self.text.ansi_get(self.offset - 1..self.offset).unwrap();
-            self.offset += 1;
-            return Some(c);
+            part = Cow::Owned(part_o);
         }
 
-        let index = self.stripped_text[self.offset..].find(&self.pat);
-        match index {
-            Some(index) => {
-                let bound = self.offset + index;
-                let part = self.text.ansi_get(self.offset..bound).unwrap();
-                self.offset = bound + self.pat.len();
-                Some(part)
-            }
-            None => {
-                let part = self.text.ansi_get(self.offset..).unwrap();
-                self.finished = true;
-                Some(part)
+        let tokens = part.ansi_parse();
+        for token in tokens {
+            if let Output::Escape(AnsiSequence::SetGraphicsMode(v)) = token {
+                update_ansi_state(&mut self.ansi_state, v.as_ref())
             }
         }
+
+        if is_ansi_state_set(&self.ansi_state) {
+            let mut part_o = part.into_owned();
+            complete_ansi_sequences(&self.ansi_state, &mut part_o);
+
+            part = Cow::Owned(part_o);
+        }
+
+        Some(part)
     }
 }
 
@@ -986,6 +977,35 @@ enum AnsiColor {
     Bit4 { index: u8 },
     Bit8 { index: u8 },
     Bit24 { r: u8, g: u8, b: u8 },
+}
+
+fn is_ansi_state_set(state: &AnsiState) -> bool {
+    state.fg_color.is_some()
+        || state.bg_color.is_some()
+        || state.undr_color.is_some()
+        || state.bold
+        || state.crossedout
+        || state.double_underline
+        || state.encircled
+        || state.faint
+        || state.fraktur
+        || state.framed
+        || state.hide
+        || state.inverse
+        || state.italic
+        || state.overlined
+        || state.proportional_spacing
+        || state.rapid_blink
+        || state.slow_blink
+        || state.underline
+        || state.subscript
+        || state.superscript
+        || state.igrm_double_overline
+        || state.igrm_double_underline
+        || state.igrm_overline
+        || state.igrm_stress_marking
+        || state.igrm_underline
+        || (state.reset && state.unknown)
 }
 
 fn update_ansi_state(state: &mut AnsiState, mode: &[u8]) {
@@ -2314,7 +2334,7 @@ mod tests {
         assert_eq!(
             vec![
                 "\u{1b}[41m\u{1b}[30mqwe\u{1b}[39m\u{1b}[49m",
-                "\u{1b}[41m\u{1b}[30mTEXT\u{1b}[39m \u{1b}[34mQWE\u{1b}[39m\u{1b}[49m"
+                "\u{1b}[30m\u{1b}[41mTEXT\u{1b}[39m \u{1b}[34mQWE\u{1b}[39m\u{1b}[49m"
             ],
             text.ansi_split(":").collect::<Vec<_>>()
         );
@@ -2328,7 +2348,7 @@ mod tests {
         assert_eq!(
             vec![
                 "\u{1b}[41;30mqwe\u{1b}[39m\u{1b}[49m",
-                "\u{1b}[41;30mTEXT\u{1b}[39m \u{1b}[34mQWE\u{1b}[39;49m"
+                "\u{1b}[30m\u{1b}[41mTEXT\u{1b}[39m \u{1b}[34mQWE\u{1b}[39;49m"
             ],
             text.ansi_split(":").collect::<Vec<_>>()
         );
@@ -2339,6 +2359,18 @@ mod tests {
         assert_eq!(
             vec![text.to_owned()],
             text.ansi_split("NOT FOUND").collect::<Vec<_>>()
+        );
+
+        assert_eq!(
+            "\u{1b}[31mlionXXtigerXleopard\u{1b}[39m"
+                .ansi_split("X")
+                .collect::<Vec<_>>(),
+            [
+                "\u{1b}[31mlion\u{1b}[39m",
+                "",
+                "\u{1b}[31mtiger\u{1b}[39m",
+                "\u{1b}[31mleopard\u{1b}[39m"
+            ],
         );
     }
 
