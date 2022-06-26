@@ -939,6 +939,22 @@ impl<'a> Iterator for AnsiSplit<'a> {
     }
 }
 
+/// This function returns a [Iterator] which produces a [AnsiBlock].
+///
+/// [AnsiBlock] represents a string with a consisten style.
+///
+/// # Example
+///
+/// ```
+/// use owo_colors::*;
+/// use ansi_str::get_blocks;
+///
+/// let message = format!("{} {}", "Hello".red(), "World".blue());
+///
+/// for block in get_blocks(&message) {
+///     println!("{:?}", block.text());
+/// }
+/// ```
 pub fn get_blocks(s: &str) -> AnsiBlockIter<'_> {
     AnsiBlockIter {
         buf: None,
@@ -947,6 +963,7 @@ pub fn get_blocks(s: &str) -> AnsiBlockIter<'_> {
     }
 }
 
+/// An [Iterator] which produces a [AnsiBlock].
 pub struct AnsiBlockIter<'a> {
     buf: Option<String>,
     tokens: AnsiParseIterator<'a>,
@@ -969,10 +986,7 @@ impl<'a> Iterator for AnsiBlockIter<'a> {
                         None => Cow::Borrowed(text),
                     };
 
-                    return Some(AnsiBlock {
-                        text,
-                        state: self.state.clone(),
-                    });
+                    return Some(AnsiBlock::new(text, self.state.clone()));
                 }
                 Output::Escape(seq) => match seq {
                     AnsiSequence::SetGraphicsMode(v) => update_ansi_state(&mut self.state, &v),
@@ -993,21 +1007,34 @@ impl<'a> Iterator for AnsiBlockIter<'a> {
     }
 }
 
+/// An structure which represents a text and it's grafic settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnsiBlock<'a> {
     text: Cow<'a, str>,
     state: AnsiState,
 }
 
-impl AnsiBlock<'_> {
+impl<'a> AnsiBlock<'a> {
+    fn new(text: Cow<'a, str>, state: AnsiState) -> Self {
+        Self { text, state }
+    }
+
+    /// Text returns a text which is used in the [AnsiBlock].
     pub fn text(&self) -> &str {
         self.text.as_ref()
     }
 
+    /// Has_ansi checks wheather any grafic sequences are set in the [AnsiBlock].
+    pub fn has_ansi(&self) -> bool {
+        is_ansi_state_set(&self.state)
+    }
+
+    /// Returns a [AnsiSequenceStart] object which can be used to produce a ansi sequences which sets the grafic mode.
     pub fn start(&self) -> AnsiSequenceStart<'_> {
         AnsiSequenceStart(&self.state)
     }
 
+    /// Returns a [AnsiSequenceEnd] object which can be used to produce a ansi sequences which ends the grafic mode.
     pub fn end(&self) -> AnsiSequenceEnd<'_> {
         AnsiSequenceEnd(&self.state)
     }
@@ -1015,6 +1042,8 @@ impl AnsiBlock<'_> {
     // todo: Add is_* methods
 }
 
+/// An object which can be used to produce a ansi sequences which sets the grafic mode,
+/// through the [std::fmt::Display].
 pub struct AnsiSequenceStart<'a>(&'a AnsiState);
 
 impl std::fmt::Display for AnsiSequenceStart<'_> {
@@ -1030,6 +1059,8 @@ impl std::fmt::Display for AnsiSequenceStart<'_> {
     }
 }
 
+/// An object which can be used to produce a ansi sequences which ends the grafic mode,
+/// through the [std::fmt::Display].
 pub struct AnsiSequenceEnd<'a>(&'a AnsiState);
 
 impl std::fmt::Display for AnsiSequenceEnd<'_> {
@@ -2561,155 +2592,135 @@ mod tests {
 
     #[test]
     fn get_blocks_test() {
-        assert_eq!(
-            get_blocks("213").collect::<Vec<_>>(),
-            vec![AnsiBlock {
-                state: AnsiState::default(),
-                text: Cow::Borrowed("213"),
-            }],
+        macro_rules! test_blocks {
+            ([$($string:expr),* $(,)?], $expected:expr) => {
+                $(
+                    assert_eq!(
+                        get_blocks($string).collect::<Vec<_>>(),
+                        $expected,
+                    );
+                )*
+            };
+        }
+
+        test_blocks!([""], []);
+
+        test_blocks!(
+            ["213"],
+            [AnsiBlock::new(Cow::Borrowed("213"), AnsiState::default())]
         );
-        assert_eq!(get_blocks("").collect::<Vec<_>>(), vec![],);
-        assert_eq!(
-            get_blocks("213\n456").collect::<Vec<_>>(),
-            vec![AnsiBlock {
-                state: AnsiState::default(),
-                text: Cow::Borrowed("213\n456"),
-            }],
+
+        test_blocks!(
+            ["213\n456"],
+            [AnsiBlock::new(
+                Cow::Borrowed("213\n456"),
+                AnsiState::default()
+            )]
         );
-        assert_eq!(
-            get_blocks("\u{1b}[30m123:456\u{1b}[39m").collect::<Vec<_>>(),
-            vec![AnsiBlock {
-                text: Cow::Borrowed("123:456"),
-                state: AnsiState {
+
+        test_blocks!(
+            [
+                "\u{1b}[30m123:456\u{1b}[39m",
+                "\u{1b}[30m123:456\u{1b}[0m",
+                "\u{1b}[30m123:456",
+            ],
+            [AnsiBlock::new(
+                Cow::Borrowed("123:456"),
+                AnsiState {
                     fg_color: Some(AnsiColor::Bit4 { index: 30 }),
                     ..Default::default()
                 }
-            }],
+            )]
         );
-        assert_eq!(
-            get_blocks("\u{1b}[41m\u{1b}[30mqwe:TEXT\u{1b}[39m \u{1b}[34mQWE\u{1b}[39m\u{1b}[49m")
-                .collect::<Vec<_>>(),
-            vec![
-                AnsiBlock {
-                    text: Cow::Borrowed("qwe:TEXT"),
-                    state: AnsiState {
-                        fg_color: Some(AnsiColor::Bit4 { index: 30 }),
-                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
-                        ..Default::default()
-                    }
-                },
-                AnsiBlock {
-                    text: Cow::Borrowed(" "),
-                    state: AnsiState {
-                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
-                        ..Default::default()
-                    }
-                },
-                AnsiBlock {
-                    text: Cow::Borrowed("QWE"),
-                    state: AnsiState {
-                        fg_color: Some(AnsiColor::Bit4 { index: 34 }),
-                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
-                        ..Default::default()
-                    }
-                },
+
+        test_blocks!(
+            [
+                "\u{1b}[30m123\n:\n456\u{1b}[39m",
+                "\u{1b}[30m123\n:\n456\u{1b}[0m",
+                "\u{1b}[30m123\n:\n456",
             ],
-        );
-        assert_eq!(
-            get_blocks("\u{1b}[41;30mqwe:TEXT\u{1b}[39m \u{1b}[34mQWE\u{1b}[39;49m")
-                .collect::<Vec<_>>(),
-            vec![
-                AnsiBlock {
-                    text: Cow::Borrowed("qwe:TEXT"),
-                    state: AnsiState {
-                        fg_color: Some(AnsiColor::Bit4 { index: 30 }),
-                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
-                        ..Default::default()
-                    }
-                },
-                AnsiBlock {
-                    text: Cow::Borrowed(" "),
-                    state: AnsiState {
-                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
-                        ..Default::default()
-                    }
-                },
-                AnsiBlock {
-                    text: Cow::Borrowed("QWE"),
-                    state: AnsiState {
-                        fg_color: Some(AnsiColor::Bit4 { index: 34 }),
-                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
-                        ..Default::default()
-                    }
-                },
-            ],
-        );
-        assert_eq!(
-            get_blocks("\u{1b}[41;30mqwe:TEXT\u{1b}[39m \u{1b}[34mQWE\u{1b}[0m")
-                .collect::<Vec<_>>(),
-            vec![
-                AnsiBlock {
-                    text: Cow::Borrowed("qwe:TEXT"),
-                    state: AnsiState {
-                        fg_color: Some(AnsiColor::Bit4 { index: 30 }),
-                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
-                        ..Default::default()
-                    }
-                },
-                AnsiBlock {
-                    text: Cow::Borrowed(" "),
-                    state: AnsiState {
-                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
-                        ..Default::default()
-                    }
-                },
-                AnsiBlock {
-                    text: Cow::Borrowed("QWE"),
-                    state: AnsiState {
-                        fg_color: Some(AnsiColor::Bit4 { index: 34 }),
-                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
-                        ..Default::default()
-                    }
-                },
-            ],
-        );
-        assert_eq!(
-            get_blocks("\u{1b}[41;30mqwe:TEXT\u{1b}[39m \u{1b}[34mQWE").collect::<Vec<_>>(),
-            vec![
-                AnsiBlock {
-                    text: Cow::Borrowed("qwe:TEXT"),
-                    state: AnsiState {
-                        fg_color: Some(AnsiColor::Bit4 { index: 30 }),
-                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
-                        ..Default::default()
-                    }
-                },
-                AnsiBlock {
-                    text: Cow::Borrowed(" "),
-                    state: AnsiState {
-                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
-                        ..Default::default()
-                    }
-                },
-                AnsiBlock {
-                    text: Cow::Borrowed("QWE"),
-                    state: AnsiState {
-                        fg_color: Some(AnsiColor::Bit4 { index: 34 }),
-                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
-                        ..Default::default()
-                    }
-                },
-            ],
-        );
-        assert_eq!(
-            get_blocks("\u{1b}[31mlionXXtigerXleopard\u{1b}[39m").collect::<Vec<_>>(),
-            vec![AnsiBlock {
-                text: Cow::Borrowed("lionXXtigerXleopard"),
-                state: AnsiState {
-                    fg_color: Some(AnsiColor::Bit4 { index: 31 }),
+            [AnsiBlock::new(
+                Cow::Borrowed("123\n:\n456"),
+                AnsiState {
+                    fg_color: Some(AnsiColor::Bit4 { index: 30 }),
                     ..Default::default()
                 }
-            },],
+            )]
+        );
+
+        test_blocks!(
+            [
+                "\u{1b}[41m\u{1b}[30mqwe:TEXT\u{1b}[39m \u{1b}[34mQWE\u{1b}[39m\u{1b}[49m",
+                "\u{1b}[41;30mqwe:TEXT\u{1b}[39m \u{1b}[34mQWE\u{1b}[39;49m",
+                "\u{1b}[41m\u{1b}[30mqwe:TEXT\u{1b}[39m \u{1b}[34mQWE\u{1b}[0m",
+                "\u{1b}[41m\u{1b}[30mqwe:TEXT\u{1b}[39m \u{1b}[34mQWE",
+            ],
+            [
+                AnsiBlock::new(
+                    Cow::Borrowed("qwe:TEXT"),
+                    AnsiState {
+                        fg_color: Some(AnsiColor::Bit4 { index: 30 }),
+                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        ..Default::default()
+                    }
+                ),
+                AnsiBlock::new(
+                    Cow::Borrowed(" "),
+                    AnsiState {
+                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        ..Default::default()
+                    }
+                ),
+                AnsiBlock::new(
+                    Cow::Borrowed("QWE"),
+                    AnsiState {
+                        fg_color: Some(AnsiColor::Bit4 { index: 34 }),
+                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        ..Default::default()
+                    }
+                ),
+            ]
+        );
+
+        test_blocks!(
+            ["\u{1b}[31mlionXXtigerXleopard\u{1b}[39m"],
+            [AnsiBlock::new(
+                Cow::Borrowed("lionXXtigerXleopard"),
+                AnsiState {
+                    fg_color: Some(AnsiColor::Bit4 { index: 31 }),
+                    ..Default::default()
+                },
+            )]
+        );
+
+        test_blocks!(
+            ["\u{1b}[41;30m Hello \u{1b}[0m \t \u{1b}[43;32m World \u{1b}[0m",],
+            [
+                AnsiBlock::new(
+                    Cow::Borrowed(" Hello "),
+                    AnsiState {
+                        fg_color: Some(AnsiColor::Bit4 { index: 30 }),
+                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        ..Default::default()
+                    }
+                ),
+                AnsiBlock::new(
+                    Cow::Borrowed(" \t "),
+                    AnsiState {
+                        reset: true,
+                        ..Default::default()
+                    },
+                ),
+                AnsiBlock::new(
+                    Cow::Borrowed(" World "),
+                    AnsiState {
+                        fg_color: Some(AnsiColor::Bit4 { index: 32 }),
+                        bg_color: Some(AnsiColor::Bit4 { index: 43 }),
+                        reset: true,
+                        ..Default::default()
+                    },
+                ),
+            ]
         );
     }
 }
