@@ -37,8 +37,7 @@
 // todo: Quickcheck tests
 // todo: README.md
 
-use ansi_parser::AnsiSequence;
-use ansi_parser::{AnsiParser, Output};
+use ansi_parser::{AnsiParseIterator, AnsiParser, AnsiSequence, Output};
 use std::borrow::Cow;
 use std::fmt::Write;
 use std::ops::{Bound, RangeBounds};
@@ -940,7 +939,113 @@ impl<'a> Iterator for AnsiSplit<'a> {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+pub fn get_blocks(s: &str) -> AnsiBlockIter<'_> {
+    AnsiBlockIter {
+        buf: None,
+        state: AnsiState::default(),
+        tokens: s.ansi_parse(),
+    }
+}
+
+pub struct AnsiBlockIter<'a> {
+    buf: Option<String>,
+    tokens: AnsiParseIterator<'a>,
+    state: AnsiState,
+}
+
+impl<'a> Iterator for AnsiBlockIter<'a> {
+    type Item = AnsiBlock<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.tokens.next()? {
+                Output::TextBlock(text) => {
+                    // todo: fix the clone to borrowing.
+                    let text = match self.buf.take() {
+                        Some(mut buf) => {
+                            buf.push_str(text);
+                            Cow::Owned(buf)
+                        }
+                        None => Cow::Borrowed(text),
+                    };
+
+                    return Some(AnsiBlock {
+                        text,
+                        state: self.state.clone(),
+                    });
+                }
+                Output::Escape(seq) => match seq {
+                    AnsiSequence::SetGraphicsMode(v) => update_ansi_state(&mut self.state, &v),
+                    _ => {
+                        let buf = match self.buf.as_mut() {
+                            Some(buf) => buf,
+                            None => {
+                                self.buf = Some(String::new());
+                                self.buf.as_mut().unwrap()
+                            }
+                        };
+
+                        write_list!(buf, seq);
+                    }
+                },
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnsiBlock<'a> {
+    text: Cow<'a, str>,
+    state: AnsiState,
+}
+
+impl AnsiBlock<'_> {
+    pub fn text(&self) -> &str {
+        self.text.as_ref()
+    }
+
+    pub fn start(&self) -> AnsiSequenceStart<'_> {
+        AnsiSequenceStart(&self.state)
+    }
+
+    pub fn end(&self) -> AnsiSequenceEnd<'_> {
+        AnsiSequenceEnd(&self.state)
+    }
+
+    // todo: Add is_* methods
+}
+
+pub struct AnsiSequenceStart<'a>(&'a AnsiState);
+
+impl std::fmt::Display for AnsiSequenceStart<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !is_ansi_state_set(self.0) {
+            return Ok(());
+        }
+
+        let mut b = String::new();
+        begin_ansi_sequences(self.0, &mut b);
+        b.fmt(f)?;
+        Ok(())
+    }
+}
+
+pub struct AnsiSequenceEnd<'a>(&'a AnsiState);
+
+impl std::fmt::Display for AnsiSequenceEnd<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !is_ansi_state_set(self.0) {
+            return Ok(());
+        }
+
+        let mut b = String::new();
+        complete_ansi_sequences(self.0, &mut b);
+        b.fmt(f)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct AnsiState {
     fg_color: Option<AnsiColor>,
     bg_color: Option<AnsiColor>,
@@ -2452,5 +2557,159 @@ mod tests {
         assert_eq!(width_cjk("👩"), 2);
         assert_eq!(width_cjk("🔬"), 2);
         assert_eq!(width_cjk("👩‍🔬"), 4);
+    }
+
+    #[test]
+    fn get_blocks_test() {
+        assert_eq!(
+            get_blocks("213").collect::<Vec<_>>(),
+            vec![AnsiBlock {
+                state: AnsiState::default(),
+                text: Cow::Borrowed("213"),
+            }],
+        );
+        assert_eq!(get_blocks("").collect::<Vec<_>>(), vec![],);
+        assert_eq!(
+            get_blocks("213\n456").collect::<Vec<_>>(),
+            vec![AnsiBlock {
+                state: AnsiState::default(),
+                text: Cow::Borrowed("213\n456"),
+            }],
+        );
+        assert_eq!(
+            get_blocks("\u{1b}[30m123:456\u{1b}[39m").collect::<Vec<_>>(),
+            vec![AnsiBlock {
+                text: Cow::Borrowed("123:456"),
+                state: AnsiState {
+                    fg_color: Some(AnsiColor::Bit4 { index: 30 }),
+                    ..Default::default()
+                }
+            }],
+        );
+        assert_eq!(
+            get_blocks("\u{1b}[41m\u{1b}[30mqwe:TEXT\u{1b}[39m \u{1b}[34mQWE\u{1b}[39m\u{1b}[49m")
+                .collect::<Vec<_>>(),
+            vec![
+                AnsiBlock {
+                    text: Cow::Borrowed("qwe:TEXT"),
+                    state: AnsiState {
+                        fg_color: Some(AnsiColor::Bit4 { index: 30 }),
+                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        ..Default::default()
+                    }
+                },
+                AnsiBlock {
+                    text: Cow::Borrowed(" "),
+                    state: AnsiState {
+                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        ..Default::default()
+                    }
+                },
+                AnsiBlock {
+                    text: Cow::Borrowed("QWE"),
+                    state: AnsiState {
+                        fg_color: Some(AnsiColor::Bit4 { index: 34 }),
+                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        ..Default::default()
+                    }
+                },
+            ],
+        );
+        assert_eq!(
+            get_blocks("\u{1b}[41;30mqwe:TEXT\u{1b}[39m \u{1b}[34mQWE\u{1b}[39;49m")
+                .collect::<Vec<_>>(),
+            vec![
+                AnsiBlock {
+                    text: Cow::Borrowed("qwe:TEXT"),
+                    state: AnsiState {
+                        fg_color: Some(AnsiColor::Bit4 { index: 30 }),
+                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        ..Default::default()
+                    }
+                },
+                AnsiBlock {
+                    text: Cow::Borrowed(" "),
+                    state: AnsiState {
+                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        ..Default::default()
+                    }
+                },
+                AnsiBlock {
+                    text: Cow::Borrowed("QWE"),
+                    state: AnsiState {
+                        fg_color: Some(AnsiColor::Bit4 { index: 34 }),
+                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        ..Default::default()
+                    }
+                },
+            ],
+        );
+        assert_eq!(
+            get_blocks("\u{1b}[41;30mqwe:TEXT\u{1b}[39m \u{1b}[34mQWE\u{1b}[0m")
+                .collect::<Vec<_>>(),
+            vec![
+                AnsiBlock {
+                    text: Cow::Borrowed("qwe:TEXT"),
+                    state: AnsiState {
+                        fg_color: Some(AnsiColor::Bit4 { index: 30 }),
+                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        ..Default::default()
+                    }
+                },
+                AnsiBlock {
+                    text: Cow::Borrowed(" "),
+                    state: AnsiState {
+                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        ..Default::default()
+                    }
+                },
+                AnsiBlock {
+                    text: Cow::Borrowed("QWE"),
+                    state: AnsiState {
+                        fg_color: Some(AnsiColor::Bit4 { index: 34 }),
+                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        ..Default::default()
+                    }
+                },
+            ],
+        );
+        assert_eq!(
+            get_blocks("\u{1b}[41;30mqwe:TEXT\u{1b}[39m \u{1b}[34mQWE").collect::<Vec<_>>(),
+            vec![
+                AnsiBlock {
+                    text: Cow::Borrowed("qwe:TEXT"),
+                    state: AnsiState {
+                        fg_color: Some(AnsiColor::Bit4 { index: 30 }),
+                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        ..Default::default()
+                    }
+                },
+                AnsiBlock {
+                    text: Cow::Borrowed(" "),
+                    state: AnsiState {
+                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        ..Default::default()
+                    }
+                },
+                AnsiBlock {
+                    text: Cow::Borrowed("QWE"),
+                    state: AnsiState {
+                        fg_color: Some(AnsiColor::Bit4 { index: 34 }),
+                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        ..Default::default()
+                    }
+                },
+            ],
+        );
+        assert_eq!(
+            get_blocks("\u{1b}[31mlionXXtigerXleopard\u{1b}[39m").collect::<Vec<_>>(),
+            vec![AnsiBlock {
+                text: Cow::Borrowed("lionXXtigerXleopard"),
+                state: AnsiState {
+                    fg_color: Some(AnsiColor::Bit4 { index: 31 }),
+                    ..Default::default()
+                }
+            },],
+        );
     }
 }
