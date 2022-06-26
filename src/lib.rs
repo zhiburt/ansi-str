@@ -488,46 +488,6 @@ impl AnsiStr for String {
     }
 }
 
-/// Calculates a width of an orignal string using [unicode-width].
-///
-/// It must be faster then using [AnsiStr::ansi_strip] and calling [unicode-width] directly because it doesn't do any allocations.
-///
-/// [unicode-width]: https://docs.rs/unicode-width/latest/unicode_width/
-#[cfg(feature = "width")]
-pub fn width<S>(text: S) -> usize
-where
-    S: AsRef<str>,
-{
-    let mut width = 0;
-    for token in text.as_ref().ansi_parse() {
-        if let Output::TextBlock(text) = token {
-            width += unicode_width::UnicodeWidthStr::width(text);
-        }
-    }
-
-    width
-}
-
-/// Calculates a width of an orignal string using [unicode-width].
-///
-/// It must be faster then using [AnsiStr::ansi_strip] and calling [unicode-width] directly because it doesn't do any allocations.
-///
-/// [unicode-width]: https://docs.rs/unicode-width/latest/unicode_width/
-#[cfg(feature = "width")]
-pub fn width_cjk<S>(text: S) -> usize
-where
-    S: AsRef<str>,
-{
-    let mut width = 0;
-    for token in text.as_ref().ansi_parse() {
-        if let Output::TextBlock(text) = token {
-            width += unicode_width::UnicodeWidthStr::width_cjk(text);
-        }
-    }
-
-    width
-}
-
 macro_rules! write_list {
     ($b:expr, $($c:tt)*) => {{
         $(
@@ -2544,50 +2504,6 @@ mod tests {
             "\u{1b}[48;2;023;011;100m\u{1b}[31mHello\u{1b}[39m\u{1b}[49m \u{1b}[32;43mWorld\u{1b}[0m".ansi_split_at(6),
             ("\u{1b}[31m\u{1b}[48;2;23;11;100mHello\u{1b}[39m\u{1b}[49m ".to_owned(), "\u{1b}[32m\u{1b}[43mWorld\u{1b}[39m\u{1b}[49m".to_owned()),
         );
-    }
-
-    #[cfg(feature = "width")]
-    #[test]
-    fn width_test() {
-        assert_eq!(width(""), 0);
-
-        assert_eq!(width("X"), 1);
-        assert_eq!(width("Hello World"), 11);
-
-        assert_eq!(width("\u{1b}[38;5;30m\u{1b}[39m"), 0);
-
-        assert_eq!(width("\u{1b}[38;5;30mTEXT\u{1b}[39m"), 4);
-        assert_eq!(width("\u{1b}[48;2;023;011;100m\u{1b}[31mHello\u{1b}[39m\u{1b}[49m \u{1b}[32;43mWorld\u{1b}[0m"), 11);
-
-        assert_eq!(width("\n\n\nHello \n\n\n World\n\n\n"), 12);
-
-        assert_eq!(width("Ｈｅｌｌｏ, ｗｏｒｌｄ!"), 23);
-
-        assert_eq!(width("👩"), 2);
-        assert_eq!(width("🔬"), 2);
-        assert_eq!(width("👩‍🔬"), 4);
-    }
-
-    #[cfg(feature = "width")]
-    #[test]
-    fn width_cjk_test() {
-        assert_eq!(width_cjk(""), 0);
-
-        assert_eq!(width_cjk("X"), 1);
-        assert_eq!(width_cjk("Hello World"), 11);
-
-        assert_eq!(width_cjk("\u{1b}[38;5;30m\u{1b}[39m"), 0);
-
-        assert_eq!(width_cjk("\u{1b}[38;5;30mTEXT\u{1b}[39m"), 4);
-        assert_eq!(width_cjk("\u{1b}[48;2;023;011;100m\u{1b}[31mHello\u{1b}[39m\u{1b}[49m \u{1b}[32;43mWorld\u{1b}[0m"), 11);
-
-        assert_eq!(width_cjk("\n\n\nHello \n\n\n World\n\n\n"), 12);
-
-        assert_eq!(width_cjk("Ｈｅｌｌｏ, ｗｏｒｌｄ!"), 23);
-
-        assert_eq!(width_cjk("👩"), 2);
-        assert_eq!(width_cjk("🔬"), 2);
-        assert_eq!(width_cjk("👩‍🔬"), 4);
     }
 
     #[test]
