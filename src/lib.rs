@@ -1,3 +1,6 @@
+#![warn(missing_docs)]
+#![warn(rustdoc::missing_doc_code_examples)]
+
 //! # Ansi-cut
 //!
 //! A library which provides a set of methods to work with colored strings (by ansi sequences).
@@ -10,8 +13,10 @@
 //! ```
 //! use owo_colors::*;
 //! use ansi_str::AnsiStr;
+//!
 //! let hello = "Hello World!".red().to_string();
 //! let (hello, world) = hello.ansi_split_at(6);
+//!
 //! println!("{}", hello);
 //! println!("{}", world);
 //! ```
@@ -67,6 +72,7 @@ pub trait AnsiStr {
     /// ```
     /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
+    ///
     /// let v = "🗻 on the 🌏".red().to_string();
     ///
     /// assert_eq!(Some("🗻 on".red().to_string()), v.ansi_get(0..7));
@@ -84,6 +90,7 @@ pub trait AnsiStr {
     ///
     /// ```
     /// use ansi_str::AnsiStr;
+    ///
     /// let v = "🗻 on the 🌏";
     ///
     /// assert_eq!(Some("on the 🌏".to_owned()), v.ansi_get(5..));
@@ -112,6 +119,7 @@ pub trait AnsiStr {
     /// ```
     /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
+    ///
     /// let v = "🗻 on the 🌏".red().on_black().to_string();
     /// assert_eq!("🗻", v.ansi_cut(0..4).ansi_strip());
     /// assert_eq!("🗻 on", v.ansi_cut(..7).ansi_strip());
@@ -123,6 +131,7 @@ pub trait AnsiStr {
     /// ```should_panic
     /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
+    ///
     /// let v = "🗻 on the 🌏".yellow().to_string();
     /// v.ansi_cut(1..);
     /// ```
@@ -141,7 +150,9 @@ pub trait AnsiStr {
     /// ```
     /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
+    ///
     /// let s = "Löwe 老虎 Léopard".blue().to_string();
+    ///
     /// assert!(s.ansi_is_char_boundary(0));
     /// // start of `老`
     /// assert!(s.ansi_is_char_boundary(6));
@@ -167,6 +178,7 @@ pub trait AnsiStr {
     /// ```
     /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
+    ///
     /// let s = "Löwe 老虎 Léopard Gepardi".red().on_black().to_string();
     ///
     /// assert_eq!(s.ansi_find("L"), Some(0));
@@ -189,6 +201,7 @@ pub trait AnsiStr {
     /// ```
     /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
+    ///
     /// assert_eq!("foo:bar".red().to_string().ansi_strip_prefix("foo:"), Some("bar".red().to_string()));
     /// assert_eq!("foo:bar".red().to_string().ansi_strip_prefix("bar"), None);
     /// assert_eq!("foofoo".red().to_string().ansi_strip_prefix("foo"), Some("foo".red().to_string()));
@@ -209,6 +222,7 @@ pub trait AnsiStr {
     /// ```
     /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
+    ///
     /// assert_eq!("bar:foo".red().to_string().ansi_strip_suffix(":foo"), Some("bar".red().to_string()));
     /// assert_eq!("bar:foo".red().to_string().ansi_strip_suffix("bar"), None);
     /// assert_eq!("foofoo".red().to_string().ansi_strip_suffix("foo"), Some("foo".red().to_string()));
@@ -228,12 +242,10 @@ pub trait AnsiStr {
     ///
     /// let text = "Mary had a little lamb".red().to_string();
     ///
-    /// let v: Vec<_> = text
-    ///     .ansi_split(" ")
-    ///     .collect();
+    /// let words: Vec<_> = text.ansi_split(" ").collect();
     ///
     /// assert_eq!(
-    ///     v,
+    ///     words,
     ///     [
     ///         "Mary".red().to_string(),
     ///         "had".red().to_string(),
@@ -271,6 +283,7 @@ pub trait AnsiStr {
     /// ```
     /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
+    ///
     /// let s = "Per Martin-Löf".red().on_black().to_string();
     ///
     /// let (first, last) = s.ansi_split_at(3);
@@ -292,6 +305,7 @@ pub trait AnsiStr {
     /// ```
     /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
+    ///
     /// let bananas = "bananas".red().on_black().to_string();
     ///
     /// assert!(bananas.ansi_starts_with("bana"));
@@ -311,6 +325,7 @@ pub trait AnsiStr {
     /// ```
     /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
+    ///
     /// let bananas = "bananas".red().on_black().to_string();
     ///
     /// assert!(bananas.ansi_ends_with("anas"));
@@ -328,6 +343,7 @@ pub trait AnsiStr {
     /// ```
     /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
+    ///
     /// let s = " Hello\tworld\t".red().to_string();
     ///
     /// assert_eq!("Hello\tworld".red().to_string(), s.ansi_trim());
@@ -343,6 +359,7 @@ pub trait AnsiStr {
     /// ```
     /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
+    ///
     /// let hello = "Hello World!".red().on_black().to_string();
     ///
     /// assert_eq!(hello.ansi_strip(), "Hello World!");
@@ -850,6 +867,8 @@ fn has_any(text: &str) -> bool {
     false
 }
 
+/// An [Iterator] over matches.
+/// Created with the method [AnsiStr::ansi_split].
 pub struct AnsiSplit<'a> {
     split_iter: std::str::Split<'a, &'a str>,
     ansi_state: AnsiState,
@@ -924,6 +943,7 @@ pub fn get_blocks(s: &str) -> AnsiBlockIter<'_> {
 }
 
 /// An [Iterator] which produces a [AnsiBlock].
+/// It's created from [get_blocks] function.
 pub struct AnsiBlockIter<'a> {
     buf: Option<String>,
     tokens: AnsiParseIterator<'a>,
