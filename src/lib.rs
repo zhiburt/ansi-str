@@ -577,7 +577,7 @@ fn cut_str(string: &str, lower_bound: usize, upper_bound: Option<usize>) -> Stri
         }
     }
 
-    complete_ansi_sequences(&ansi_state, &mut buf);
+    write_ansi_postfix(&mut buf, &ansi_state).unwrap();
 
     buf
 }
@@ -630,7 +630,7 @@ fn get(string: &str, lower_bound: Option<usize>, upper_bound: Option<usize>) -> 
         }
     }
 
-    complete_ansi_sequences(&ansi_state, &mut buf);
+    write_ansi_postfix(&mut buf, &ansi_state).unwrap();
 
     Some(buf)
 }
@@ -660,17 +660,17 @@ fn split_at(string: &str, mid: usize) -> (String, String) {
 
                 if let Some(text) = left {
                     if !text.is_empty() {
-                        begin_ansi_sequences(&ansi_state, &mut lhs);
+                        write_ansi_prefix(&mut lhs, &ansi_state).unwrap();
                         lhs.push_str(text);
-                        complete_ansi_sequences(&ansi_state, &mut lhs);
+                        write_ansi_postfix(&mut lhs, &ansi_state).unwrap();
                     }
                 }
 
                 if let Some(text) = right {
                     if !text.is_empty() {
-                        begin_ansi_sequences(&ansi_state, &mut rhs);
+                        write_ansi_prefix(&mut rhs, &ansi_state).unwrap();
                         rhs.push_str(text);
-                        complete_ansi_sequences(&ansi_state, &mut rhs);
+                        write_ansi_postfix(&mut rhs, &ansi_state).unwrap();
                     }
                 }
 
@@ -867,6 +867,21 @@ fn has_any(text: &str) -> bool {
     false
 }
 
+fn strip_ansi_sequences(string: &str) -> String {
+    let tokens = string.ansi_parse();
+    let mut buf = String::new();
+    for token in tokens {
+        match token {
+            Output::TextBlock(text) => {
+                buf.push_str(text);
+            }
+            Output::Escape(_) => {}
+        }
+    }
+
+    buf
+}
+
 /// An [Iterator] over matches.
 /// Created with the method [AnsiStr::ansi_split].
 pub struct AnsiSplit<'a> {
@@ -892,9 +907,9 @@ impl<'a> Iterator for AnsiSplit<'a> {
             return Some(part);
         }
 
-        if is_ansi_state_set(&self.ansi_state) {
+        if self.ansi_state.has_any() {
             let mut part_o = String::new();
-            begin_ansi_sequences(&self.ansi_state, &mut part_o);
+            write_ansi_prefix(&mut part_o, &self.ansi_state).unwrap();
             part_o.push_str(&part);
 
             part = Cow::Owned(part_o);
@@ -907,9 +922,9 @@ impl<'a> Iterator for AnsiSplit<'a> {
             }
         }
 
-        if is_ansi_state_set(&self.ansi_state) {
+        if self.ansi_state.has_any() {
             let mut part_o = part.into_owned();
-            complete_ansi_sequences(&self.ansi_state, &mut part_o);
+            write_ansi_postfix(&mut part_o, &self.ansi_state).unwrap();
 
             part = Cow::Owned(part_o);
         }
@@ -1006,7 +1021,7 @@ impl<'a> AnsiBlock<'a> {
 
     /// Has_ansi checks wheather any grafic sequences are set in the [AnsiBlock].
     pub fn has_ansi(&self) -> bool {
-        is_ansi_state_set(&self.state)
+        self.state.has_any()
     }
 
     /// Returns a [AnsiSequenceStart] object which can be used to produce a ansi sequences which sets the grafic mode.
@@ -1028,14 +1043,11 @@ pub struct AnsiSequenceStart<'a>(&'a AnsiState);
 
 impl std::fmt::Display for AnsiSequenceStart<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if !is_ansi_state_set(self.0) {
+        if !self.0.has_any() {
             return Ok(());
         }
 
-        let mut b = String::new();
-        begin_ansi_sequences(self.0, &mut b);
-        b.fmt(f)?;
-        Ok(())
+        write_ansi_prefix(f, self.0)
     }
 }
 
@@ -1043,16 +1055,18 @@ impl std::fmt::Display for AnsiSequenceStart<'_> {
 /// through the [std::fmt::Display].
 pub struct AnsiSequenceEnd<'a>(&'a AnsiState);
 
+impl AnsiSequenceEnd<'_> {
+    /// 'ESC[0m' sequence which can be used in any case.
+    pub const RESET_ALL: &'static str = "\u{1b}[0m";
+}
+
 impl std::fmt::Display for AnsiSequenceEnd<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if !is_ansi_state_set(self.0) {
+        if !self.0.has_any() {
             return Ok(());
         }
 
-        let mut b = String::new();
-        complete_ansi_sequences(self.0, &mut b);
-        b.fmt(f)?;
-        Ok(())
+        write_ansi_postfix(f, self.0)
     }
 }
 
@@ -1095,33 +1109,35 @@ enum AnsiColor {
     Bit24 { r: u8, g: u8, b: u8 },
 }
 
-fn is_ansi_state_set(state: &AnsiState) -> bool {
-    state.fg_color.is_some()
-        || state.bg_color.is_some()
-        || state.undr_color.is_some()
-        || state.bold
-        || state.crossedout
-        || state.double_underline
-        || state.encircled
-        || state.faint
-        || state.fraktur
-        || state.framed
-        || state.hide
-        || state.inverse
-        || state.italic
-        || state.overlined
-        || state.proportional_spacing
-        || state.rapid_blink
-        || state.slow_blink
-        || state.underline
-        || state.subscript
-        || state.superscript
-        || state.igrm_double_overline
-        || state.igrm_double_underline
-        || state.igrm_overline
-        || state.igrm_stress_marking
-        || state.igrm_underline
-        || (state.reset && state.unknown)
+impl AnsiState {
+    fn has_any(&self) -> bool {
+        self.fg_color.is_some()
+            || self.bg_color.is_some()
+            || self.undr_color.is_some()
+            || self.bold
+            || self.crossedout
+            || self.double_underline
+            || self.encircled
+            || self.faint
+            || self.fraktur
+            || self.framed
+            || self.hide
+            || self.inverse
+            || self.italic
+            || self.overlined
+            || self.proportional_spacing
+            || self.rapid_blink
+            || self.slow_blink
+            || self.underline
+            || self.subscript
+            || self.superscript
+            || self.igrm_double_overline
+            || self.igrm_double_underline
+            || self.igrm_overline
+            || self.igrm_stress_marking
+            || self.igrm_underline
+            || (self.reset && self.unknown)
+    }
 }
 
 fn update_ansi_state(state: &mut AnsiState, mode: &[u8]) {
@@ -1298,264 +1314,260 @@ fn parse_ansi_color(buf: &[u8]) -> Option<(AnsiColor, usize)> {
     }
 }
 
+macro_rules! emit_block {
+    ($f:expr, $b:block) => {
+        // todo: uncomment when parsing ready
+
+        // macro_rules! __emit {
+        //     ($foo:expr, $was_written:expr) => {
+        //         if $was_written {
+        //             $f.write_str(";")?;
+        //         } else {
+        //             $f.write_str("\u{1b}[")?;
+        //             $was_written = true;
+        //         }
+
+        //         $foo?;
+        //     };
+        // }
+
+        // let mut was_written = false;
+
+        // macro_rules! emit {
+        //     ($foo:expr) => {
+        //         __emit!($foo, was_written)
+        //     };
+        // }
+
+        // $b
+
+        // if was_written {
+        //     $f.write_char('m')?;
+        // }
+
+        macro_rules! emit {
+            ($foo:expr) => {
+                $f.write_str("\u{1b}[")?;
+                $foo?;
+                $f.write_char('m')?;
+            };
+        }
+
+        $b
+    };
+}
+
+fn write_ansi_prefix(mut f: impl std::fmt::Write, state: &AnsiState) -> std::fmt::Result {
+    emit_block!(f, {
+        if state.bold {
+            emit!(f.write_str("1"));
+        }
+
+        if state.faint {
+            emit!(f.write_str("2"));
+        }
+
+        if state.italic {
+            emit!(f.write_str("3"));
+        }
+
+        if state.underline {
+            emit!(f.write_str("4"));
+        }
+
+        if state.slow_blink {
+            emit!(f.write_str("5"));
+        }
+
+        if state.rapid_blink {
+            emit!(f.write_str("6"));
+        }
+
+        if state.inverse {
+            emit!(f.write_str("7"));
+        }
+
+        if state.hide {
+            emit!(f.write_str("8"));
+        }
+
+        if state.crossedout {
+            emit!(f.write_str("9"));
+        }
+
+        if let Some(font) = state.font {
+            emit!(f.write_fmt(format_args!("{}", font)));
+        }
+
+        if state.fraktur {
+            emit!(f.write_str("20"));
+        }
+
+        if state.double_underline {
+            emit!(f.write_str("21"));
+        }
+
+        if state.proportional_spacing {
+            emit!(f.write_str("26"));
+        }
+
+        if let Some(color) = &state.fg_color {
+            emit!(write_color(&mut f, color, ColorType::Fg));
+        }
+
+        if let Some(color) = &state.bg_color {
+            emit!(write_color(&mut f, color, ColorType::Bg));
+        }
+
+        if let Some(color) = &state.undr_color {
+            emit!(write_color(&mut f, color, ColorType::Undr));
+        }
+
+        if state.framed {
+            emit!(f.write_str("51"));
+        }
+
+        if state.encircled {
+            emit!(f.write_str("52"));
+        }
+
+        if state.overlined {
+            emit!(f.write_str("53"));
+        }
+
+        if state.igrm_underline {
+            emit!(f.write_str("60"));
+        }
+
+        if state.igrm_double_underline {
+            emit!(f.write_str("61"));
+        }
+
+        if state.igrm_overline {
+            emit!(f.write_str("62"));
+        }
+
+        if state.igrm_double_overline {
+            emit!(f.write_str("63"));
+        }
+
+        if state.igrm_stress_marking {
+            emit!(f.write_str("64"));
+        }
+
+        if state.superscript {
+            emit!(f.write_str("73"));
+        }
+
+        if state.subscript {
+            emit!(f.write_str("74"));
+        }
+    });
+
+    Ok(())
+}
+
+fn write_ansi_postfix(mut f: impl std::fmt::Write, state: &AnsiState) -> std::fmt::Result {
+    emit_block!(f, {
+        // do we need to reset on reset?
+        if state.unknown && state.reset {
+            emit!(f.write_char('0'));
+        }
+
+        if state.font.is_some() {
+            emit!(f.write_str("10"));
+        }
+
+        if state.bold || state.faint {
+            emit!(f.write_str("22"));
+        }
+
+        if state.italic {
+            emit!(f.write_str("23"));
+        }
+
+        if state.underline || state.double_underline {
+            emit!(f.write_str("24"));
+        }
+
+        if state.slow_blink || state.rapid_blink {
+            emit!(f.write_str("25"));
+        }
+
+        if state.inverse {
+            emit!(f.write_str("28"));
+        }
+
+        if state.crossedout {
+            emit!(f.write_str("29"));
+        }
+
+        if state.fg_color.is_some() {
+            emit!(f.write_str("39"));
+        }
+
+        if state.bg_color.is_some() {
+            emit!(f.write_str("49"));
+        }
+
+        if state.proportional_spacing {
+            emit!(f.write_str("50"));
+        }
+
+        if state.encircled || state.framed {
+            emit!(f.write_str("54"));
+        }
+
+        if state.overlined {
+            emit!(f.write_str("55"));
+        }
+
+        if state.igrm_underline
+            || state.igrm_double_underline
+            || state.igrm_overline
+            || state.igrm_double_overline
+            || state.igrm_stress_marking
+        {
+            emit!(f.write_str("65"));
+        }
+
+        if state.undr_color.is_some() {
+            emit!(f.write_str("59"));
+        }
+
+        if state.subscript || state.superscript {
+            emit!(f.write_str("75"));
+        }
+
+        if state.unknown {
+            emit!(f.write_char('0'));
+        }
+    });
+
+    Ok(())
+}
+
 enum ColorType {
     Bg,
     Fg,
     Undr,
 }
 
-fn complete_ansi_sequences(state: &AnsiState, buf: &mut String) {
-    macro_rules! emit_static {
-        ($s:expr) => {
-            buf.push_str(concat!("\u{1b}[", $s, "m"))
-        };
-    }
-
-    if state.unknown && state.reset {
-        emit_static!("0");
-    }
-
-    if state.font.is_some() {
-        emit_static!("10");
-    }
-
-    if state.bold || state.faint {
-        emit_static!("22");
-    }
-
-    if state.italic {
-        emit_static!("23");
-    }
-
-    if state.underline || state.double_underline {
-        emit_static!("24");
-    }
-
-    if state.slow_blink || state.rapid_blink {
-        emit_static!("25");
-    }
-
-    if state.inverse {
-        emit_static!("28");
-    }
-
-    if state.crossedout {
-        emit_static!("29");
-    }
-
-    if state.fg_color.is_some() {
-        emit_static!("39");
-    }
-
-    if state.bg_color.is_some() {
-        emit_static!("49");
-    }
-
-    if state.proportional_spacing {
-        emit_static!("50");
-    }
-
-    if state.encircled || state.framed {
-        emit_static!("54");
-    }
-
-    if state.overlined {
-        emit_static!("55");
-    }
-
-    if state.igrm_underline
-        || state.igrm_double_underline
-        || state.igrm_overline
-        || state.igrm_double_overline
-        || state.igrm_stress_marking
-    {
-        emit_static!("65");
-    }
-
-    if state.undr_color.is_some() {
-        emit_static!("59");
-    }
-
-    if state.subscript || state.superscript {
-        emit_static!("75");
-    }
-
-    if state.unknown {
-        emit_static!("0");
-    }
-}
-
-fn begin_ansi_sequences(state: &AnsiState, buf: &mut String) {
-    macro_rules! emit_char {
-        ($s:expr) => {
-            buf.push('\u{1b}');
-            buf.push('[');
-            buf.push($s);
-            buf.push('m');
-        };
-    }
-
-    macro_rules! emit_str {
-        ($s:expr) => {
-            buf.push('\u{1b}');
-            buf.push('[');
-            buf.push_str($s);
-            buf.push('m');
-        };
-    }
-
-    macro_rules! emit_color {
-        ($color:expr, $t:expr) => {{
-            buf.push('\u{1b}');
-            buf.push('[');
-
-            emit_ansi_color($color, $t, buf);
-
-            buf.push('m');
-        }};
-    }
-
-    macro_rules! emit_byte {
-        ($b:expr) => {{
-            buf.push('\u{1b}');
-            buf.push('[');
-            buf.push(char::from($b));
-            buf.push('m');
-        }};
-    }
-
-    if state.bold {
-        emit_char!('1');
-    }
-
-    if state.faint {
-        emit_char!('2');
-    }
-
-    if state.italic {
-        emit_char!('3');
-    }
-
-    if state.underline {
-        emit_char!('4');
-    }
-
-    if state.slow_blink {
-        emit_char!('5');
-    }
-
-    if state.rapid_blink {
-        emit_char!('6');
-    }
-
-    if state.inverse {
-        emit_char!('7');
-    }
-
-    if state.hide {
-        emit_char!('8');
-    }
-
-    if state.crossedout {
-        emit_char!('9');
-    }
-
-    if let Some(font) = state.font {
-        emit_byte!(font);
-    }
-
-    if state.fraktur {
-        emit_str!("20");
-    }
-
-    if state.double_underline {
-        emit_str!("21");
-    }
-
-    if state.proportional_spacing {
-        emit_str!("26");
-    }
-
-    if let Some(color) = &state.fg_color {
-        emit_color!(color, ColorType::Fg);
-    }
-
-    if let Some(color) = &state.bg_color {
-        emit_color!(color, ColorType::Bg);
-    }
-
-    if let Some(color) = &state.undr_color {
-        emit_color!(color, ColorType::Undr);
-    }
-
-    if state.framed {
-        emit_str!("51");
-    }
-
-    if state.encircled {
-        emit_str!("52");
-    }
-
-    if state.overlined {
-        emit_str!("53");
-    }
-
-    if state.igrm_underline {
-        emit_str!("60");
-    }
-
-    if state.igrm_double_underline {
-        emit_str!("61");
-    }
-
-    if state.igrm_overline {
-        emit_str!("62");
-    }
-
-    if state.igrm_double_overline {
-        emit_str!("63");
-    }
-
-    if state.igrm_stress_marking {
-        emit_str!("64");
-    }
-
-    if state.superscript {
-        emit_str!("73");
-    }
-
-    if state.subscript {
-        emit_str!("74");
-    }
-}
-
-fn emit_ansi_color(color: &AnsiColor, color_type: ColorType, buf: &mut String) {
-    let first_byte = match color_type {
-        ColorType::Bg => 48,
-        ColorType::Fg => 38,
-        ColorType::Undr => 58,
-    };
-
+fn write_color(mut f: impl std::fmt::Write, color: &AnsiColor, ct: ColorType) -> std::fmt::Result {
     match *color {
-        AnsiColor::Bit4 { index } => write_list!(buf, index),
-        AnsiColor::Bit8 { index } => {
-            write_list!(buf, first_byte);
-            buf.push(';');
-            buf.push('5');
-            buf.push(';');
-            write_list!(buf, index);
-        }
+        AnsiColor::Bit4 { index } => write!(f, "{}", index),
+        AnsiColor::Bit8 { index } => f.write_fmt(format_args!("{};5;{}", color_type(ct), index)),
         AnsiColor::Bit24 { r, g, b } => {
-            write_list!(buf, first_byte);
-            buf.push(';');
-            buf.push('2');
-            buf.push(';');
-            write_list!(buf, r);
-            buf.push(';');
-            write_list!(buf, g);
-            buf.push(';');
-            write_list!(buf, b);
+            f.write_fmt(format_args!("{};2;{};{};{}", color_type(ct), r, g, b))
         }
+    }
+}
+
+fn color_type(color_type: ColorType) -> &'static str {
+    match color_type {
+        ColorType::Bg => "48",
+        ColorType::Fg => "38",
+        ColorType::Undr => "58",
     }
 }
 
@@ -1573,21 +1585,6 @@ fn bounds_to_usize(left: Bound<&usize>, right: Bound<&usize>) -> (usize, Option<
             unreachable!("A start bound can't be excluded")
         }
     }
-}
-
-fn strip_ansi_sequences(string: &str) -> String {
-    let tokens = string.ansi_parse();
-    let mut buf = String::new();
-    for token in tokens {
-        match token {
-            Output::TextBlock(text) => {
-                buf.push_str(text);
-            }
-            Output::Escape(_) => {}
-        }
-    }
-
-    buf
 }
 
 #[cfg(test)]
@@ -2488,6 +2485,15 @@ mod tests {
                 "\u{1b}[31mleopard\u{1b}[39m"
             ],
         );
+
+        // assert_eq!(
+        //     "\u{1b}[2;48;5;10m\u{1b}[38;5;20mDar\nren\u{1b}[0m"
+        //         .ansi_split("\n")
+        //         .collect::<Vec<_>>(),
+        //     [
+        //         "\u{1b}[2;48;5;127m\u{1b}[318;5;20mDar\u{1b}[39m", "\u{1b}[38;5;20mren\u{1b}[0m"
+        //     ],
+        // )
     }
 
     #[test]
@@ -2657,6 +2663,17 @@ mod tests {
                     },
                 ),
             ]
+        );
+    }
+
+    #[test]
+    fn font_usage_test() {
+        assert_eq!(
+            "\u{1b}[12mTEXT\u{1b}[10m".ansi_split_at(2),
+            (
+                "\u{1b}[12mTE\u{1b}[10m".to_owned(),
+                "\u{1b}[12mXT\u{1b}[10m".to_owned()
+            ),
         );
     }
 }
