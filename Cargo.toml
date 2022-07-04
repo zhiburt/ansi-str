@@ -14,7 +14,7 @@ categories = ["text-processing", "command-line-interface"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ansi-parser = "0.8.0"
+ansi_rs = { git = "https://gitlab.com/zhiburt/ansi_rs" }
 
 [dev-dependencies]
 owo-colors = "3.2.0"

@@ -42,7 +42,10 @@
 // todo: Quickcheck tests
 // todo: README.md
 
-use ansi_parser::{AnsiParseIterator, AnsiParser, AnsiSequence, Output};
+use ansi_rs::{
+    parse_ansi, parse_ansi_sgr, AnsiColor, AnsiSequence, AnsiSequenceParser, Output,
+    VisualAttribute,
+};
 use std::borrow::Cow;
 use std::fmt::Write;
 use std::ops::{Bound, RangeBounds};
@@ -527,13 +530,13 @@ where
 
 fn cut_str(string: &str, lower_bound: usize, upper_bound: Option<usize>) -> String {
     let mut ansi_state = AnsiState::default();
-    let tokens = string.ansi_parse();
+    let tokens = parse_ansi(string);
     let mut buf = String::new();
     let mut index = 0;
 
     '_tokens_loop: for token in tokens {
         match token {
-            Output::TextBlock(text) => {
+            Output::Text(text) => {
                 let block_end_index = index + text.len();
                 if lower_bound > block_end_index {
                     index += text.len();
@@ -570,8 +573,8 @@ fn cut_str(string: &str, lower_bound: usize, upper_bound: Option<usize>) -> Stri
             }
             Output::Escape(seq) => {
                 write_list!(buf, seq);
-                if let AnsiSequence::SetGraphicsMode(v) = seq {
-                    update_ansi_state(&mut ansi_state, v.as_ref());
+                if let AnsiSequence::SelectGraphicRendition(v) = seq {
+                    update_ansi_state(&mut ansi_state, v);
                 }
             }
         }
@@ -584,13 +587,13 @@ fn cut_str(string: &str, lower_bound: usize, upper_bound: Option<usize>) -> Stri
 
 fn get(string: &str, lower_bound: Option<usize>, upper_bound: Option<usize>) -> Option<String> {
     let mut ansi_state = AnsiState::default();
-    let tokens = string.ansi_parse();
+    let tokens = parse_ansi(string);
     let mut buf = String::new();
     let mut index = 0;
 
     '_tokens_loop: for token in tokens {
         match token {
-            Output::TextBlock(text) => {
+            Output::Text(text) => {
                 let block_end_index = index + text.len();
                 let mut start = 0;
                 if let Some(lower_bound) = lower_bound {
@@ -623,8 +626,8 @@ fn get(string: &str, lower_bound: Option<usize>, upper_bound: Option<usize>) -> 
             }
             Output::Escape(seq) => {
                 write_list!(buf, seq);
-                if let AnsiSequence::SetGraphicsMode(v) = seq {
-                    update_ansi_state(&mut ansi_state, v.as_ref());
+                if let AnsiSequence::SelectGraphicRendition(v) = seq {
+                    update_ansi_state(&mut ansi_state, v);
                 }
             }
         }
@@ -641,10 +644,10 @@ fn split_at(string: &str, mid: usize) -> (String, String) {
     let mut rhs = String::new();
     let mut index = 0;
 
-    let tokens = string.ansi_parse();
+    let tokens = parse_ansi(string);
     '_tokens_loop: for token in tokens {
         match token {
-            Output::TextBlock(text) => {
+            Output::Text(text) => {
                 let mut left = None;
                 let mut right = None;
 
@@ -677,8 +680,8 @@ fn split_at(string: &str, mid: usize) -> (String, String) {
                 index += text.len();
             }
             Output::Escape(seq) => {
-                if let AnsiSequence::SetGraphicsMode(v) = seq {
-                    update_ansi_state(&mut ansi_state, v.as_ref());
+                if let AnsiSequence::SelectGraphicRendition(v) = seq {
+                    update_ansi_state(&mut ansi_state, v);
                 } else if index <= mid {
                     write_list!(lhs, seq);
                 } else if index > mid {
@@ -694,9 +697,9 @@ fn split_at(string: &str, mid: usize) -> (String, String) {
 fn strip_prefix(text: &str, mut pat: &str) -> Option<String> {
     let mut buf = String::new();
 
-    for token in text.ansi_parse() {
+    for token in parse_ansi(text) {
         match token {
-            Output::TextBlock(text) => {
+            Output::Text(text) => {
                 let is_stripped = pat.is_empty();
                 if is_stripped {
                     buf.push_str(text);
@@ -737,13 +740,13 @@ fn strip_prefix(text: &str, mut pat: &str) -> Option<String> {
 
 fn strip_suffix(text: &str, mut pat: &str) -> Option<String> {
     #[allow(clippy::needless_collect)]
-    let tokens = text.ansi_parse().collect::<Vec<_>>();
+    let tokens = parse_ansi(text).collect::<Vec<_>>();
 
     let mut buf = String::new();
 
     for token in tokens.into_iter().rev() {
         match token {
-            Output::TextBlock(text) => {
+            Output::Text(text) => {
                 let is_stripped = pat.is_empty();
                 if is_stripped {
                     buf.insert_str(0, text);
@@ -776,9 +779,9 @@ fn strip_suffix(text: &str, mut pat: &str) -> Option<String> {
 }
 
 fn starts_with(text: &str, mut pat: &str) -> bool {
-    for token in text.ansi_parse() {
+    for token in parse_ansi(text) {
         match token {
-            Output::TextBlock(text) => {
+            Output::Text(text) => {
                 if pat.is_empty() {
                     return true;
                 }
@@ -819,9 +822,9 @@ fn trim(text: &str) -> String {
     let mut buf_ansi = String::new();
     let mut trimmed = false;
 
-    for token in text.ansi_parse() {
+    for token in parse_ansi(text) {
         match token {
-            Output::TextBlock(mut text) => {
+            Output::Text(mut text) => {
                 if !buf_ansi.is_empty() {
                     buf.push_str(&buf_ansi);
                     buf_ansi.clear();
@@ -858,8 +861,11 @@ fn find(text: &str, pat: &str) -> Option<usize> {
 }
 
 fn has_any(text: &str) -> bool {
-    for token in text.ansi_parse() {
-        if matches!(token, Output::Escape(AnsiSequence::SetGraphicsMode(_))) {
+    for token in parse_ansi(text) {
+        if matches!(
+            token,
+            Output::Escape(AnsiSequence::SelectGraphicRendition(_))
+        ) {
             return true;
         }
     }
@@ -868,11 +874,11 @@ fn has_any(text: &str) -> bool {
 }
 
 fn strip_ansi_sequences(string: &str) -> String {
-    let tokens = string.ansi_parse();
+    let tokens = parse_ansi(string);
     let mut buf = String::new();
     for token in tokens {
         match token {
-            Output::TextBlock(text) => {
+            Output::Text(text) => {
                 buf.push_str(text);
             }
             Output::Escape(_) => {}
@@ -915,10 +921,10 @@ impl<'a> Iterator for AnsiSplit<'a> {
             part = Cow::Owned(part_o);
         }
 
-        let tokens = part.ansi_parse();
+        let tokens = parse_ansi(&part);
         for token in tokens {
-            if let Output::Escape(AnsiSequence::SetGraphicsMode(v)) = token {
-                update_ansi_state(&mut self.ansi_state, v.as_ref())
+            if let Output::Escape(AnsiSequence::SelectGraphicRendition(v)) = token {
+                update_ansi_state(&mut self.ansi_state, v)
             }
         }
 
@@ -953,7 +959,7 @@ pub fn get_blocks(s: &str) -> AnsiBlockIter<'_> {
     AnsiBlockIter {
         buf: None,
         state: AnsiState::default(),
-        tokens: s.ansi_parse(),
+        tokens: parse_ansi(s),
     }
 }
 
@@ -961,7 +967,7 @@ pub fn get_blocks(s: &str) -> AnsiBlockIter<'_> {
 /// It's created from [get_blocks] function.
 pub struct AnsiBlockIter<'a> {
     buf: Option<String>,
-    tokens: AnsiParseIterator<'a>,
+    tokens: AnsiSequenceParser<'a>,
     state: AnsiState,
 }
 
@@ -971,7 +977,7 @@ impl<'a> Iterator for AnsiBlockIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.tokens.next()? {
-                Output::TextBlock(text) => {
+                Output::Text(text) => {
                     // todo: fix the clone to borrowing.
                     let text = match self.buf.take() {
                         Some(mut buf) => {
@@ -984,7 +990,9 @@ impl<'a> Iterator for AnsiBlockIter<'a> {
                     return Some(AnsiBlock::new(text, self.state.clone()));
                 }
                 Output::Escape(seq) => match seq {
-                    AnsiSequence::SetGraphicsMode(v) => update_ansi_state(&mut self.state, &v),
+                    AnsiSequence::SelectGraphicRendition(v) => {
+                        update_ansi_state(&mut self.state, v)
+                    }
                     _ => {
                         let buf = match self.buf.as_mut() {
                             Some(buf) => buf,
@@ -1003,7 +1011,7 @@ impl<'a> Iterator for AnsiBlockIter<'a> {
 }
 
 /// An structure which represents a text and it's grafic settings.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AnsiBlock<'a> {
     text: Cow<'a, str>,
     state: AnsiState,
@@ -1070,7 +1078,7 @@ impl std::fmt::Display for AnsiSequenceEnd<'_> {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 struct AnsiState {
     fg_color: Option<AnsiColor>,
     bg_color: Option<AnsiColor>,
@@ -1100,13 +1108,6 @@ struct AnsiState {
     superscript: bool,
     subscript: bool,
     unknown: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum AnsiColor {
-    Bit4 { index: u8 },
-    Bit8 { index: u8 },
-    Bit24 { r: u8, g: u8, b: u8 },
 }
 
 impl AnsiState {
@@ -1140,177 +1141,104 @@ impl AnsiState {
     }
 }
 
-fn update_ansi_state(state: &mut AnsiState, mode: &[u8]) {
-    let mut ptr = mode;
-    loop {
-        if ptr.is_empty() {
-            break;
-        }
-
-        let tag = ptr[0];
-
+fn update_ansi_state(state: &mut AnsiState, mode: &str) {
+    for tag in parse_ansi_sgr(mode) {
         match tag {
-            0 => {
-                *state = AnsiState::default();
-                state.reset = true;
-            }
-            1 => state.bold = true,
-            2 => state.faint = true,
-            3 => state.italic = true,
-            4 => state.underline = true,
-            5 => state.slow_blink = true,
-            6 => state.rapid_blink = true,
-            7 => state.inverse = true,
-            8 => state.hide = true,
-            9 => state.crossedout = true,
-            10 => state.font = None,
-            n @ 11..=19 => state.font = Some(n),
-            20 => state.fraktur = true,
-            21 => state.double_underline = true,
-            22 => {
-                state.faint = false;
-                state.bold = false;
-            }
-            23 => {
-                state.italic = false;
-            }
-            24 => {
-                state.underline = false;
-                state.double_underline = false;
-            }
-            25 => {
-                state.slow_blink = false;
-                state.rapid_blink = false;
-            }
-            26 => {
-                state.proportional_spacing = true;
-            }
-            27 => {
-                state.inverse = false;
-            }
-            28 => {
-                state.hide = false;
-            }
-            29 => {
-                state.crossedout = false;
-            }
-            n @ 30..=37 | n @ 90..=97 => {
-                state.fg_color = Some(AnsiColor::Bit4 { index: n });
-            }
-            38 => {
-                if ptr.len() > 2 {
-                    if let Some((color, n)) = parse_ansi_color(&ptr[1..]) {
-                        state.fg_color = Some(color);
-                        ptr = &ptr[n..];
-                    }
-                }
-
-                // fixme: if connditions are not meat we must set unknown
-            }
-            39 => {
-                state.fg_color = None;
-            }
-            n @ 40..=47 | n @ 100..=107 => {
-                state.bg_color = Some(AnsiColor::Bit4 { index: n });
-            }
-            48 => {
-                if ptr.len() > 2 {
-                    if let Some((color, n)) = parse_ansi_color(&ptr[1..]) {
-                        state.bg_color = Some(color);
-                        ptr = &ptr[n..];
-                    }
-                }
-            }
-            49 => {
-                state.bg_color = None;
-            }
-            50 => {
-                state.proportional_spacing = false;
-            }
-            51 => {
-                state.framed = true;
-            }
-            52 => {
-                state.encircled = true;
-            }
-            53 => {
-                state.overlined = true;
-            }
-            54 => {
-                state.encircled = false;
-                state.framed = false;
-            }
-            55 => {
-                state.overlined = false;
-            }
-            58 => {
-                if ptr.len() > 2 {
-                    if let Some((color, n)) = parse_ansi_color(&ptr[1..]) {
-                        state.undr_color = Some(color);
-                        ptr = &ptr[n..];
-                    }
-                }
-            }
-            59 => {
-                state.undr_color = None;
-            }
-            60 => {
-                state.igrm_underline = true;
-            }
-            61 => {
-                state.igrm_double_underline = true;
-            }
-            62 => {
-                state.igrm_overline = true;
-            }
-            63 => {
-                state.igrm_double_overline = true;
-            }
-            64 => {
-                state.igrm_stress_marking = true;
-            }
-            65 => {
-                state.igrm_underline = false;
-                state.igrm_double_underline = false;
-                state.igrm_overline = false;
-                state.igrm_double_overline = false;
-                state.igrm_stress_marking = false;
-            }
-            73 => {
-                state.superscript = true;
-            }
-            74 => {
-                state.subscript = true;
-            }
-            75 => {
-                state.subscript = false;
-                state.superscript = false;
-            }
-            _ => {
+            Output::Text(_) => {
                 state.unknown = true;
             }
-        }
-
-        ptr = &ptr[1..];
-    }
-}
-
-// ansi parser skips `;` chars
-//
-// todo: open issue in ansi parse
-// because it provides not bytes as they appear but bytes as parsed ints
-fn parse_ansi_color(buf: &[u8]) -> Option<(AnsiColor, usize)> {
-    match buf {
-        [5, index, ..] => Some((AnsiColor::Bit8 { index: *index }, 2)),
-        [2, r, g, b, ..] => Some((
-            AnsiColor::Bit24 {
-                r: *r,
-                g: *g,
-                b: *b,
+            Output::Escape(mode) => match mode {
+                VisualAttribute::Bold => state.bold = true,
+                VisualAttribute::Faint => state.faint = true,
+                VisualAttribute::Italic => state.italic = true,
+                VisualAttribute::Underline => state.underline = true,
+                VisualAttribute::SlowBlink => state.slow_blink = true,
+                VisualAttribute::RapidBlink => state.rapid_blink = true,
+                VisualAttribute::Inverse => state.inverse = true,
+                VisualAttribute::Hide => state.hide = true,
+                VisualAttribute::Crossedout => state.crossedout = true,
+                VisualAttribute::Font(font) => state.font = Some(font),
+                VisualAttribute::Fraktur => state.fraktur = true,
+                VisualAttribute::DoubleUnderline => state.double_underline = true,
+                VisualAttribute::ProportionalSpacing => state.proportional_spacing = true,
+                VisualAttribute::FgColor(c) => state.fg_color = Some(c),
+                VisualAttribute::BgColor(c) => state.bg_color = Some(c),
+                VisualAttribute::UndrColor(c) => state.undr_color = Some(c),
+                VisualAttribute::Framed => state.framed = true,
+                VisualAttribute::Encircled => state.encircled = true,
+                VisualAttribute::Overlined => state.overlined = true,
+                VisualAttribute::IgrmUnderline => state.igrm_underline = true,
+                VisualAttribute::IgrmDoubleUnderline => state.igrm_double_underline = true,
+                VisualAttribute::IgrmOverline => state.igrm_overline = true,
+                VisualAttribute::IgrmdDoubleOverline => state.igrm_double_overline = true,
+                VisualAttribute::IgrmStressMarking => state.igrm_stress_marking = true,
+                VisualAttribute::Superscript => state.superscript = true,
+                VisualAttribute::Subscript => state.subscript = true,
+                VisualAttribute::Reset(reset) => match reset {
+                    0 => {
+                        *state = AnsiState::default();
+                        state.reset = true;
+                    }
+                    22 => {
+                        state.faint = false;
+                        state.bold = false;
+                    }
+                    23 => {
+                        state.italic = false;
+                    }
+                    24 => {
+                        state.underline = false;
+                        state.double_underline = false;
+                    }
+                    25 => {
+                        state.slow_blink = false;
+                        state.rapid_blink = false;
+                    }
+                    27 => {
+                        state.inverse = false;
+                    }
+                    28 => {
+                        state.hide = false;
+                    }
+                    29 => {
+                        state.crossedout = false;
+                    }
+                    39 => {
+                        state.fg_color = None;
+                    }
+                    49 => {
+                        state.bg_color = None;
+                    }
+                    50 => {
+                        state.proportional_spacing = false;
+                    }
+                    54 => {
+                        state.encircled = false;
+                        state.framed = false;
+                    }
+                    55 => {
+                        state.overlined = false;
+                    }
+                    59 => {
+                        state.undr_color = None;
+                    }
+                    65 => {
+                        state.igrm_underline = false;
+                        state.igrm_double_underline = false;
+                        state.igrm_overline = false;
+                        state.igrm_double_overline = false;
+                        state.igrm_stress_marking = false;
+                    }
+                    75 => {
+                        state.subscript = false;
+                        state.superscript = false;
+                    }
+                    _ => {
+                        state.unknown = true;
+                    }
+                },
             },
-            4,
-        )),
-        _ => None,
+        }
     }
 }
 
@@ -1555,8 +1483,8 @@ enum ColorType {
 
 fn write_color(mut f: impl std::fmt::Write, color: &AnsiColor, ct: ColorType) -> std::fmt::Result {
     match *color {
-        AnsiColor::Bit4 { index } => write!(f, "{}", index),
-        AnsiColor::Bit8 { index } => f.write_fmt(format_args!("{};5;{}", color_type(ct), index)),
+        AnsiColor::Bit4(index) => write!(f, "{}", index),
+        AnsiColor::Bit8(index) => f.write_fmt(format_args!("{};5;{}", color_type(ct), index)),
         AnsiColor::Bit24 { r, g, b } => {
             f.write_fmt(format_args!("{};2;{};{};{}", color_type(ct), r, g, b))
         }
@@ -1591,48 +1519,48 @@ fn bounds_to_usize(left: Bound<&usize>, right: Bound<&usize>) -> (usize, Option<
 mod tests {
     use super::*;
 
-    #[test]
-    fn parse_ansi_color_test() {
-        let tests: Vec<(&[u8], _)> = vec![
-            (&[5, 200], Some(AnsiColor::Bit8 { index: 200 })),
-            (&[5, 100, 123, 39], Some(AnsiColor::Bit8 { index: 100 })),
-            (&[5, 100, 1, 2, 3], Some(AnsiColor::Bit8 { index: 100 })),
-            (&[5, 1, 2, 3], Some(AnsiColor::Bit8 { index: 1 })),
-            (&[5], None),
-            (
-                &[2, 100, 123, 39],
-                Some(AnsiColor::Bit24 {
-                    r: 100,
-                    g: 123,
-                    b: 39,
-                }),
-            ),
-            (
-                &[2, 100, 123, 39, 1, 2, 3],
-                Some(AnsiColor::Bit24 {
-                    r: 100,
-                    g: 123,
-                    b: 39,
-                }),
-            ),
-            (
-                &[2, 100, 123, 39, 1, 2, 3],
-                Some(AnsiColor::Bit24 {
-                    r: 100,
-                    g: 123,
-                    b: 39,
-                }),
-            ),
-            (&[2, 100, 123], None),
-            (&[2, 100], None),
-            (&[2], None),
-            (&[], None),
-        ];
+    // #[test]
+    // fn parse_ansi_color_test() {
+    //     let tests: Vec<(&[u8], _)> = vec![
+    //         (&[5, 200], Some(AnsiColor::Bit8(200))),
+    //         (&[5, 100, 123, 39], Some(AnsiColor::Bit8(100))),
+    //         (&[5, 100, 1, 2, 3], Some(AnsiColor::Bit8(100))),
+    //         (&[5, 1, 2, 3], Some(AnsiColor::Bit8(1))),
+    //         (&[5], None),
+    //         (
+    //             &[2, 100, 123, 39],
+    //             Some(AnsiColor::Bit24 {
+    //                 r: 100,
+    //                 g: 123,
+    //                 b: 39,
+    //             }),
+    //         ),
+    //         (
+    //             &[2, 100, 123, 39, 1, 2, 3],
+    //             Some(AnsiColor::Bit24 {
+    //                 r: 100,
+    //                 g: 123,
+    //                 b: 39,
+    //             }),
+    //         ),
+    //         (
+    //             &[2, 100, 123, 39, 1, 2, 3],
+    //             Some(AnsiColor::Bit24 {
+    //                 r: 100,
+    //                 g: 123,
+    //                 b: 39,
+    //             }),
+    //         ),
+    //         (&[2, 100, 123], None),
+    //         (&[2, 100], None),
+    //         (&[2], None),
+    //         (&[], None),
+    //     ];
 
-        for (i, (bytes, expected)) in tests.into_iter().enumerate() {
-            assert_eq!(parse_ansi_color(bytes).map(|a| a.0), expected, "test={}", i);
-        }
-    }
+    //     for (i, (bytes, expected)) in tests.into_iter().enumerate() {
+    //         assert_eq!(parse_ansi_color(bytes).map(|a| a.0), expected, "test={}", i);
+    //     }
+    // }
 
     #[test]
     fn cut_colored_fg_test() {
@@ -2569,7 +2497,7 @@ mod tests {
             [AnsiBlock::new(
                 Cow::Borrowed("123:456"),
                 AnsiState {
-                    fg_color: Some(AnsiColor::Bit4 { index: 30 }),
+                    fg_color: Some(AnsiColor::Bit4(30)),
                     ..Default::default()
                 }
             )]
@@ -2584,7 +2512,7 @@ mod tests {
             [AnsiBlock::new(
                 Cow::Borrowed("123\n:\n456"),
                 AnsiState {
-                    fg_color: Some(AnsiColor::Bit4 { index: 30 }),
+                    fg_color: Some(AnsiColor::Bit4(30)),
                     ..Default::default()
                 }
             )]
@@ -2601,23 +2529,23 @@ mod tests {
                 AnsiBlock::new(
                     Cow::Borrowed("qwe:TEXT"),
                     AnsiState {
-                        fg_color: Some(AnsiColor::Bit4 { index: 30 }),
-                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        fg_color: Some(AnsiColor::Bit4(30)),
+                        bg_color: Some(AnsiColor::Bit4(41)),
                         ..Default::default()
                     }
                 ),
                 AnsiBlock::new(
                     Cow::Borrowed(" "),
                     AnsiState {
-                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        bg_color: Some(AnsiColor::Bit4(41)),
                         ..Default::default()
                     }
                 ),
                 AnsiBlock::new(
                     Cow::Borrowed("QWE"),
                     AnsiState {
-                        fg_color: Some(AnsiColor::Bit4 { index: 34 }),
-                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        fg_color: Some(AnsiColor::Bit4(34)),
+                        bg_color: Some(AnsiColor::Bit4(41)),
                         ..Default::default()
                     }
                 ),
@@ -2629,7 +2557,7 @@ mod tests {
             [AnsiBlock::new(
                 Cow::Borrowed("lionXXtigerXleopard"),
                 AnsiState {
-                    fg_color: Some(AnsiColor::Bit4 { index: 31 }),
+                    fg_color: Some(AnsiColor::Bit4(31)),
                     ..Default::default()
                 },
             )]
@@ -2641,8 +2569,8 @@ mod tests {
                 AnsiBlock::new(
                     Cow::Borrowed(" Hello "),
                     AnsiState {
-                        fg_color: Some(AnsiColor::Bit4 { index: 30 }),
-                        bg_color: Some(AnsiColor::Bit4 { index: 41 }),
+                        fg_color: Some(AnsiColor::Bit4(30)),
+                        bg_color: Some(AnsiColor::Bit4(41)),
                         ..Default::default()
                     }
                 ),
@@ -2656,8 +2584,8 @@ mod tests {
                 AnsiBlock::new(
                     Cow::Borrowed(" World "),
                     AnsiState {
-                        fg_color: Some(AnsiColor::Bit4 { index: 32 }),
-                        bg_color: Some(AnsiColor::Bit4 { index: 43 }),
+                        fg_color: Some(AnsiColor::Bit4(32)),
+                        bg_color: Some(AnsiColor::Bit4(43)),
                         reset: true,
                         ..Default::default()
                     },
@@ -2674,6 +2602,20 @@ mod tests {
                 "\u{1b}[12mTE\u{1b}[10m".to_owned(),
                 "\u{1b}[12mXT\u{1b}[10m".to_owned()
             ),
+        );
+    }
+
+    #[test]
+    fn ansi_split2_test() {
+        let a = "\u{1b}[2;48;5;10m\u{1b}[38;5;20mDar\nren\u{1b}[0m"
+            .ansi_split("\n")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            a,
+            [
+                "\u{1b}[2;48;5;10m\u{1b}[38;5;20mDar\u{1b}[22m\u{1b}[39m\u{1b}[49m",
+                "\u{1b}[2m\u{1b}[38;5;20m\u{1b}[48;5;10mren\u{1b}[0m"
+            ]
         );
     }
 }
