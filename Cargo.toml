@@ -11,13 +11,8 @@ license = "MIT"
 keywords = ["cli", "color", "ansi", "terminal", "ansi_term"]
 categories = ["text-processing", "command-line-interface"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 ansitok = "0.1.0"
 
 [dev-dependencies]
 owo-colors = "3.4.0"
-
-[package.metadata.docs.rs]
-all-features = true

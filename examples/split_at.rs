@@ -2,9 +2,15 @@ use ansi_str::AnsiStr;
 use owo_colors::*;
 
 fn main() {
-    let s = "Hello".red().on_black().to_string() + " " + &"World".green().on_yellow().to_string();
-    let (left, right) = s.ansi_split_at(6);
+    let text = format!(
+        "{} {}",
+        "Hello".red().on_black(),
+        "World".green().on_yellow()
+    );
 
-    println!("text {}", s);
-    println!("left {} right {}", left, right);
+    let (left, right) = text.ansi_split_at(6);
+
+    println!("text {}", text);
+    println!("left {}", left);
+    println!("left {}", right);
 }
