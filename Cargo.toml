@@ -14,10 +14,10 @@ categories = ["text-processing", "command-line-interface"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ansi_rs = { git = "https://gitlab.com/zhiburt/ansi_rs" }
+ansitok = "0.1.0"
 
 [dev-dependencies]
-owo-colors = "3.2.0"
+owo-colors = "3.4.0"
 
 [package.metadata.docs.rs]
 all-features = true

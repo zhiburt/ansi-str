@@ -1,9 +1,9 @@
 # ansi-str [![Build Status](https://github.com/zhiburt/ansi-str/actions/workflows/ci.yml/badge.svg?style=for-the-badge)](https://github.com/zhiburt/ansi-str/actions) [![codecov](https://codecov.io/gh/zhiburt/ansi-str/branch/master/graph/badge.svg?token=8VGEM3ZT1T)](https://codecov.io/gh/zhiburt/ansi-str) [![Crate](https://img.shields.io/crates/v/ansi-str)](https://crates.io/crates/ansi-str) [![docs.rs](https://img.shields.io/docsrs/ansi_str?color=blue)](https://docs.rs/ansi-str/*/ansi_str/)
 
-This is a library for work with coloured and formatted strings on ANSI terminals.
+This is a library provides a set of methods to work with strings escaped with ansi code sequences.
 
-Its a library agnostic library.
-Therefore it can be used with any ansi color library. (e.g. [owo-colors](https://crates.io/crates/owo-colors), [nu-ansi-term](https://crates.io/crates/nu-ansi-term)).
+It's an agnostic library in regard to different color libraries.
+Therefore it can be used with any library (e.g. [owo-colors](https://crates.io/crates/owo-colors), [nu-ansi-term](https://crates.io/crates/nu-ansi-term)).
 
 ## Usage
 
@@ -29,10 +29,7 @@ Running this code will result in the following output.
 
 ![image](https://user-images.githubusercontent.com/20165848/151773080-d588a474-f43c-47b3-a29d-a92f19554907.png)
 
-
-##### [For more examples, you check the directory of the same name.](https://github.com/zhiburt/ansi-str/tree/master/examples).
-
-##### You can find a list of methods which are provided by the library on [the documentation page](https://docs.rs/ansi-str/*/ansi_str/).
+##### [For more examples, you check out the `examples` directory](https://github.com/zhiburt/ansi-str/tree/master/examples).
 
 ### Note
 

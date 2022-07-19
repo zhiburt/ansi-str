@@ -1,12 +1,13 @@
 #![warn(missing_docs)]
 #![warn(rustdoc::missing_doc_code_examples)]
 
-//! # Ansi-cut
+//! # ansi_str
 //!
-//! A library which provides a set of methods to work with colored strings (by ansi sequences).
+//! A library which provides a set of methods to work with strings escaped with ansi sequences.
 //!
-//! Its a library agnostic library.
-//! Therefore it can be used with any ansi color library. (e.g. [owo-colors](https://crates.io/crates/owo-colors), [nu-ansi-term ](https://crates.io/crates/nu-ansi-term)).
+//! It's an agnostic library in regard to different color libraries.
+//! Therefore it can be used with any library (e.g. [owo-colors](https://crates.io/crates/owo-colors),
+//! [nu-ansi-term](https://crates.io/crates/nu-ansi-term)).
 //!
 //! # Example
 //!
@@ -40,15 +41,15 @@
 // todo: Maybe it's worth to create some type like AnsiString which would not necessarily allocate String underthehood
 
 // todo: Quickcheck tests
-// todo: README.md
 
-use ansi_rs::{
-    parse_ansi, parse_ansi_sgr, AnsiColor, AnsiSequence, AnsiSequenceParser, Output,
-    VisualAttribute,
-};
 use std::borrow::Cow;
 use std::fmt::Write;
 use std::ops::{Bound, RangeBounds};
+
+use ansitok::{
+    parse_ansi, parse_ansi_sgr, AnsiColor, AnsiSequence, AnsiSequenceParser, Output,
+    VisualAttribute,
+};
 
 /// AnsiStr represents a list of functions to work with colored strings
 /// defined as ANSI control sequences.
