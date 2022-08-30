@@ -1,7 +1,7 @@
 #![warn(missing_docs)]
 #![warn(rustdoc::missing_doc_code_examples)]
 
-//! # ansi_str
+//! # `ansi_str`
 //!
 //! A library which provides a set of methods to work with strings escaped with ansi sequences.
 //!
@@ -51,7 +51,7 @@ use ansitok::{
     VisualAttribute,
 };
 
-/// AnsiStr represents a list of functions to work with colored strings
+/// [`AnsiStr`] represents a list of functions to work with colored strings
 /// defined as ANSI control sequences.
 pub trait AnsiStr {
     /// Returns a substring of a string.
@@ -206,16 +206,25 @@ pub trait AnsiStr {
     /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
     ///
-    /// assert_eq!("foo:bar".red().to_string().ansi_strip_prefix("foo:"), Some("bar".red().to_string().into()));
-    /// assert_eq!("foo:bar".red().to_string().ansi_strip_prefix("bar"), None);
-    /// assert_eq!("foofoo".red().to_string().ansi_strip_prefix("foo"), Some("foo".red().to_string().into()));
+    /// assert_eq!(
+    ///     "foo:bar".red().to_string().ansi_strip_prefix("foo:"),
+    ///     Some("bar".red().to_string().into()),
+    /// );
+    /// assert_eq!(
+    ///     "foo:bar".red().to_string().ansi_strip_prefix("bar"),
+    ///     None,
+    /// );
+    /// assert_eq!(
+    ///     "foofoo".red().to_string().ansi_strip_prefix("foo"),
+    ///     Some("foo".red().to_string().into()),
+    /// );
     /// ```
     fn ansi_strip_prefix(&self, prefix: &str) -> Option<Cow<'_, str>>;
 
     /// Returns a string slice with the suffix removed,
     /// considering the ansi sequences.
     ///
-    /// If the string ends with the pattern suffix, returns the substring before the suffix, wrapped in Some. Unlike trim_end_matches, this method removes the suffix exactly once.
+    /// If the string ends with the pattern suffix, returns the substring before the suffix, wrapped in Some.
     ///
     /// If the string does not end with suffix, returns None.
     ///
@@ -999,8 +1008,8 @@ fn strip_ansi_sequences(string: &str) -> Cow<'_, str> {
     Cow::Owned(buf)
 }
 
-/// An [Iterator] over matches.
-/// Created with the method [AnsiStr::ansi_split].
+/// An [`Iterator`] over matches.
+/// Created with the method [`AnsiStr::ansi_split`].
 pub struct AnsiSplit<'a> {
     split_iter: std::str::Split<'a, &'a str>,
     ansi_state: AnsiState,
@@ -1035,7 +1044,7 @@ impl<'a> Iterator for AnsiSplit<'a> {
         let tokens = parse_ansi(&part);
         for token in tokens {
             if let Output::Escape(AnsiSequence::SelectGraphicRendition(v)) = token {
-                update_ansi_state(&mut self.ansi_state, v)
+                update_ansi_state(&mut self.ansi_state, v);
             }
         }
 
@@ -1050,9 +1059,9 @@ impl<'a> Iterator for AnsiSplit<'a> {
     }
 }
 
-/// This function returns a [Iterator] which produces a [AnsiBlock].
+/// This function returns a [Iterator] which produces a [`AnsiBlock`].
 ///
-/// [AnsiBlock] represents a string with a consisten style.
+/// [`AnsiBlock`] represents a string with a consisten style.
 ///
 /// # Example
 ///
@@ -1066,6 +1075,7 @@ impl<'a> Iterator for AnsiSplit<'a> {
 ///     println!("{:?}", block.text());
 /// }
 /// ```
+#[must_use]
 pub fn get_blocks(s: &str) -> AnsiBlockIter<'_> {
     AnsiBlockIter {
         buf: None,
@@ -1074,8 +1084,8 @@ pub fn get_blocks(s: &str) -> AnsiBlockIter<'_> {
     }
 }
 
-/// An [Iterator] which produces a [AnsiBlock].
-/// It's created from [get_blocks] function.
+/// An [`Iterator`] which produces a [`AnsiBlock`].
+/// It's created from [`get_blocks`] function.
 pub struct AnsiBlockIter<'a> {
     buf: Option<String>,
     tokens: AnsiSequenceParser<'a>,
@@ -1100,22 +1110,22 @@ impl<'a> Iterator for AnsiBlockIter<'a> {
 
                     return Some(AnsiBlock::new(text, self.state.clone()));
                 }
-                Output::Escape(seq) => match seq {
-                    AnsiSequence::SelectGraphicRendition(v) => {
-                        update_ansi_state(&mut self.state, v)
+                Output::Escape(seq) => {
+                    if let AnsiSequence::SelectGraphicRendition(v) = seq {
+                        update_ansi_state(&mut self.state, v);
+                        continue;
                     }
-                    _ => {
-                        let buf = match self.buf.as_mut() {
-                            Some(buf) => buf,
-                            None => {
-                                self.buf = Some(String::new());
-                                self.buf.as_mut().unwrap()
-                            }
-                        };
 
-                        write_list!(buf, seq);
-                    }
-                },
+                    let buf = match self.buf.as_mut() {
+                        Some(buf) => buf,
+                        None => {
+                            self.buf = Some(String::new());
+                            self.buf.as_mut().unwrap()
+                        }
+                    };
+
+                    write_list!(buf, seq);
+                }
             }
         }
     }
@@ -1133,22 +1143,24 @@ impl<'a> AnsiBlock<'a> {
         Self { text, state }
     }
 
-    /// Text returns a text which is used in the [AnsiBlock].
+    /// Text returns a text which is used in the [`AnsiBlock`].
     pub fn text(&self) -> &str {
         self.text.as_ref()
     }
 
-    /// Has_ansi checks wheather any grafic sequences are set in the [AnsiBlock].
+    /// The function checks wheather any grafic sequences are set in the [`AnsiBlock`].
     pub fn has_ansi(&self) -> bool {
         self.state.has_any()
     }
 
-    /// Returns a [AnsiSequenceStart] object which can be used to produce a ansi sequences which sets the grafic mode.
+    /// Returns a [`AnsiSequenceStart`] object which can be used to produce a ansi sequences which sets the grafic mode.
+    #[must_use]
     pub fn start(&self) -> AnsiSequenceStart<'_> {
         AnsiSequenceStart(&self.state)
     }
 
-    /// Returns a [AnsiSequenceEnd] object which can be used to produce a ansi sequences which ends the grafic mode.
+    /// Returns a [`AnsiSequenceEnd`] object which can be used to produce a ansi sequences which ends the grafic mode.
+    #[must_use]
     pub fn end(&self) -> AnsiSequenceEnd<'_> {
         AnsiSequenceEnd(&self.state)
     }
@@ -1157,7 +1169,7 @@ impl<'a> AnsiBlock<'a> {
 }
 
 /// An object which can be used to produce a ansi sequences which sets the grafic mode,
-/// through the [std::fmt::Display].
+/// through the [`std::fmt::Display`].
 pub struct AnsiSequenceStart<'a>(&'a AnsiState);
 
 impl std::fmt::Display for AnsiSequenceStart<'_> {
@@ -1171,7 +1183,7 @@ impl std::fmt::Display for AnsiSequenceStart<'_> {
 }
 
 /// An object which can be used to produce a ansi sequences which ends the grafic mode,
-/// through the [std::fmt::Display].
+/// through the [`std::fmt::Display`].
 pub struct AnsiSequenceEnd<'a>(&'a AnsiState);
 
 impl AnsiSequenceEnd<'_> {
@@ -1451,15 +1463,15 @@ fn write_ansi_prefix(mut f: impl std::fmt::Write, state: &AnsiState) -> std::fmt
         }
 
         if let Some(color) = &state.fg_color {
-            emit!(write_color(&mut f, color, ColorType::Fg));
+            emit!(write_color(&mut f, color, &ColorType::Fg));
         }
 
         if let Some(color) = &state.bg_color {
-            emit!(write_color(&mut f, color, ColorType::Bg));
+            emit!(write_color(&mut f, color, &ColorType::Bg));
         }
 
         if let Some(color) = &state.undr_color {
-            emit!(write_color(&mut f, color, ColorType::Undr));
+            emit!(write_color(&mut f, color, &ColorType::Undr));
         }
 
         if state.framed {
@@ -1592,7 +1604,7 @@ enum ColorType {
     Undr,
 }
 
-fn write_color(mut f: impl std::fmt::Write, color: &AnsiColor, ct: ColorType) -> std::fmt::Result {
+fn write_color(mut f: impl std::fmt::Write, color: &AnsiColor, ct: &ColorType) -> std::fmt::Result {
     match *color {
         AnsiColor::Bit4(index) => write!(f, "{}", index),
         AnsiColor::Bit8(index) => f.write_fmt(format_args!("{};5;{}", color_type(ct), index)),
@@ -1602,7 +1614,7 @@ fn write_color(mut f: impl std::fmt::Write, color: &AnsiColor, ct: ColorType) ->
     }
 }
 
-fn color_type(color_type: ColorType) -> &'static str {
+fn color_type(color_type: &ColorType) -> &'static str {
     match color_type {
         ColorType::Bg => "48",
         ColorType::Fg => "38",
