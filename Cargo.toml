@@ -12,7 +12,7 @@ keywords = ["cli", "color", "ansi", "terminal", "ansi_term"]
 categories = ["text-processing", "command-line-interface"]
 
 [dependencies]
-ansitok = "0.1.0"
+ansitok = { git = "https://gitlab.com/zhiburt/ansitok", branch = "patch-switch-to-vte" }
 
 [dev-dependencies]
 owo-colors = "3.4.0"
