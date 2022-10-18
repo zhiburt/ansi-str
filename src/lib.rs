@@ -29,9 +29,13 @@
 //! Why that matters is because for example the following code example is not guaranteed to be true.
 //!
 //! ```,ignore
-//! let hello1 = "Hello World!".red();
-//! let hello2 = hello.ansi_get(..).unwrap();
-//! assert_eq!(hello1, hello2)
+//! use ansi_str::AnsiStr;
+//! 
+//! pub fn main() {
+//!     let hello1 = "\u{1b}[31mHello World!\u{1b}[0m";
+//!     let hello2 = hello1.ansi_get(..).unwrap();
+//!     assert_eq!(hello1, hello2)
+//! }
 //! ```
 
 // todo: refactoring to use an iterator over chars and it hold a state for each of the chars?
