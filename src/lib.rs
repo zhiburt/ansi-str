@@ -30,7 +30,7 @@
 //!
 //! ```,ignore
 //! use ansi_str::AnsiStr;
-//! 
+//!
 //! pub fn main() {
 //!     let hello1 = "\u{1b}[31mHello World!\u{1b}[0m";
 //!     let hello2 = hello1.ansi_get(..).unwrap();
