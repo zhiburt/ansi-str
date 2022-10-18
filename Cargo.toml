@@ -1,6 +1,6 @@
 [package]
 name = "ansi-str"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 authors = ["Maxim Zhiburt <zhiburt@gmail.com>"]
 description = "A library which provides a set of methods to work with ANSI strings"
@@ -12,7 +12,7 @@ keywords = ["cli", "color", "ansi", "terminal", "ansi_term"]
 categories = ["text-processing", "command-line-interface"]
 
 [dependencies]
-ansitok = "0.1.0"
+ansitok = "0.1.1"
 
 [dev-dependencies]
 owo-colors = "3.4.0"
