@@ -43,7 +43,6 @@
 // todo: Quickcheck tests
 
 #![warn(missing_docs)]
-#![warn(rustdoc::missing_doc_code_examples)]
 
 use std::borrow::Cow;
 use std::fmt::Write;
@@ -1126,7 +1125,7 @@ impl<'a> Iterator for AnsiBlockIter<'a> {
                         None => Cow::Borrowed(text),
                     };
 
-                    return Some(AnsiBlock::new(text, self.state.clone()));
+                    return Some(AnsiBlock::new(text, self.state));
                 }
                 ElementKind::Sgr => {
                     let seq = &self.text[token.start()..token.end()];
@@ -1150,7 +1149,7 @@ impl<'a> Iterator for AnsiBlockIter<'a> {
 }
 
 /// An structure which represents a text and it's grafic settings.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnsiBlock<'a> {
     text: Cow<'a, str>,
     state: AnsiState,
@@ -1171,19 +1170,10 @@ impl<'a> AnsiBlock<'a> {
         self.state.has_any()
     }
 
-    /// Returns a [`AnsiSequenceStart`] object which can be used to produce a ansi sequences which sets the grafic mode.
-    #[must_use]
-    pub fn start(&self) -> AnsiSequenceStart<'_> {
-        AnsiSequenceStart(&self.state)
+    /// Get a style representation
+    pub fn style(&self) -> Style {
+        Style(self.state)
     }
-
-    /// Returns a [`AnsiSequenceEnd`] object which can be used to produce a ansi sequences which ends the grafic mode.
-    #[must_use]
-    pub fn end(&self) -> AnsiSequenceEnd<'_> {
-        AnsiSequenceEnd(&self.state)
-    }
-
-    // todo: Add is_* methods
 }
 
 /// An object which can be used to produce a ansi sequences which sets the grafic mode,
@@ -1219,7 +1209,56 @@ impl std::fmt::Display for AnsiSequenceEnd<'_> {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+/// A style is a structure which contains a flags about a ANSI styles where set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Style(AnsiState);
+
+macro_rules! style_method {
+    ($name:ident, $field:ident, $out:ty) => {
+        /// Check whether a
+        #[doc = stringify!($name)]
+        /// is set
+        pub fn $name(&self) -> $out {
+            let AnsiState { $field, .. } = self.0;
+            $field
+        }
+    };
+
+    ($name:ident, $field:ident) => {
+        style_method!($name, $field, bool);
+    };
+}
+
+impl Style {
+    /// Returns a [`AnsiSequenceStart`] object which can be used to produce a ansi sequences which sets the grafic mode.
+    #[must_use]
+    pub fn start(&self) -> AnsiSequenceStart<'_> {
+        AnsiSequenceStart(&self.0)
+    }
+
+    /// Returns a [`AnsiSequenceEnd`] object which can be used to produce a ansi sequences which ends the grafic mode.
+    #[must_use]
+    pub fn end(&self) -> AnsiSequenceEnd<'_> {
+        AnsiSequenceEnd(&self.0)
+    }
+}
+
+#[rustfmt::skip]
+impl Style {
+    style_method!(foreground,       fg_color,       Option<AnsiColor>);
+    style_method!(is_bold,          bold                             );
+    style_method!(is_faint,         faint                            );
+    style_method!(is_italic,        italic                           );
+    style_method!(is_underline,     underline                        );
+    style_method!(is_slow_blink,    slow_blink                       );
+    style_method!(is_rapid_blink,   rapid_blink                      );
+    style_method!(is_inverse,       inverse                          );
+    style_method!(is_hide,          hide                             );
+    style_method!(is_crossedout,    crossedout                       );
+    style_method!(is_fraktur,       fraktur                          );
+}
+
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct AnsiState {
     fg_color: Option<AnsiColor>,
     bg_color: Option<AnsiColor>,
