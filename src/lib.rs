@@ -624,7 +624,7 @@ fn get(text: &str, lower_bound: Option<usize>, upper_bound: Option<usize>) -> Op
                 let block_end_index = index + tkn.len();
                 let mut start = 0;
                 if let Some(lower_bound) = lower_bound {
-                    if lower_bound > block_end_index {
+                    if lower_bound >= block_end_index {
                         index += tkn.len();
                         continue;
                     }
@@ -2182,6 +2182,17 @@ mod tests {
 
         let text = "\u{1b}[30m123:456\u{1b}[39m";
         assert_eq!(Some("\u{1b}[30m\u{1b}[39m".into()), text.ansi_get(0..0));
+    }
+
+    #[test]
+    fn ansi_get_test_0() {
+        let text = "\u{1b}[35m│\u{1b}[39m \u{1b}[1;32mcpu\u{1b}[0m   \u{1b}[35m│\u{1b}[39m \u{1b}[35m│\u{1b}[39m  \u{1b}[1;32m#\u{1b}[0m \u{1b}[35m│\u{1b}[39m \u{1b}[1;32mname\u{1b}[0m  \u{1b}[35m│\u{1b}[39m                     \u{1b}[1;32mbrand\u{1b}[0m                      \u{1b}[35m│\u{1b}[39m \u{1b}[1;32mfreq\u{1b}[0m \u{1b}[35m│\u{1b}[39m \u{1b}[1;32mcpu_usage\u{1b}[0m \u{1b}[35m│\u{1b}[39m   \u{1b}[1;32mload_average\u{1b}[0m   \u{1b}[35m│\u{1b}[39m  \u{1b}[1;32mvendor_id\u{1b}[0m   \u{1b}[35m│\u{1b}[39m \u{1b}[35m│\u{1b}[39m";
+        assert_eq!(
+            text.ansi_get(105..).unwrap().ansi_strip(),
+            Cow::Borrowed(text.ansi_strip().get(105..).unwrap())
+        );
+
+        assert_eq!(text.ansi_get(105..).unwrap(), "\u{1b}[35m\u{1b}[39m\u{1b}[1;32m\u{1b}[0m\u{1b}[35m\u{1b}[39m\u{1b}[35m\u{1b}[39m\u{1b}[1;32m\u{1b}[0m\u{1b}[35m\u{1b}[39m\u{1b}[1;32m\u{1b}[0m\u{1b}[35m\u{1b}[39m\u{1b}[1;32m\u{1b}[0m\u{1b}[35m\u{1b}[39m\u{1b}[1;32m\u{1b}[0m\u{1b}[35m\u{1b}[39m\u{1b}[1;32m\u{1b}[0m\u{1b}[35m│\u{1b}[39m   \u{1b}[1;32mload_average\u{1b}[0m   \u{1b}[35m│\u{1b}[39m  \u{1b}[1;32mvendor_id\u{1b}[0m   \u{1b}[35m│\u{1b}[39m \u{1b}[35m│\u{1b}[39m");
     }
 
     #[test]
