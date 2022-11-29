@@ -1213,22 +1213,6 @@ impl std::fmt::Display for AnsiSequenceEnd<'_> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Style(AnsiState);
 
-macro_rules! style_method {
-    ($name:ident, $field:ident, $out:ty) => {
-        /// Check whether a
-        #[doc = stringify!($name)]
-        /// is set
-        pub fn $name(&self) -> $out {
-            let AnsiState { $field, .. } = self.0;
-            $field
-        }
-    };
-
-    ($name:ident, $field:ident) => {
-        style_method!($name, $field, bool);
-    };
-}
-
 impl Style {
     /// Returns a [`AnsiSequenceStart`] object which can be used to produce a ansi sequences which sets the grafic mode.
     #[must_use]
@@ -1241,21 +1225,159 @@ impl Style {
     pub fn end(&self) -> AnsiSequenceEnd<'_> {
         AnsiSequenceEnd(&self.0)
     }
+
+    /// Returns a foreground color if any was used.
+    pub fn foreground(&self) -> Option<Color> {
+        self.0.fg_color.map(Color::from)
+    }
+
+    /// Returns a background color if any was used.
+    pub fn background(&self) -> Option<Color> {
+        self.0.bg_color.map(Color::from)
+    }
+}
+
+macro_rules! style_method {
+    ($name:ident, $field:ident) => {
+        /// Check whether a
+        #[doc = stringify!($name)]
+        /// is set
+        pub fn $name(&self) -> bool {
+            let AnsiState { $field, .. } = self.0;
+            $field
+        }
+    };
 }
 
 #[rustfmt::skip]
 impl Style {
-    style_method!(foreground,       fg_color,       Option<AnsiColor>);
-    style_method!(is_bold,          bold                             );
-    style_method!(is_faint,         faint                            );
-    style_method!(is_italic,        italic                           );
-    style_method!(is_underline,     underline                        );
-    style_method!(is_slow_blink,    slow_blink                       );
-    style_method!(is_rapid_blink,   rapid_blink                      );
-    style_method!(is_inverse,       inverse                          );
-    style_method!(is_hide,          hide                             );
-    style_method!(is_crossedout,    crossedout                       );
-    style_method!(is_fraktur,       fraktur                          );
+    style_method!(is_bold,          bold);
+    style_method!(is_faint,         faint);
+    style_method!(is_italic,        italic);
+    style_method!(is_underline,     underline);
+    style_method!(is_slow_blink,    slow_blink);
+    style_method!(is_rapid_blink,   rapid_blink);
+    style_method!(is_inverse,       inverse);
+    style_method!(is_hide,          hide);
+    style_method!(is_crossedout,    crossedout);
+    style_method!(is_fraktur,       fraktur);
+}
+
+/// A color is one specific type of ANSI escape code, and can refer
+/// to either the foreground or background color.
+///
+/// These use the standard numeric sequences.
+/// See <http://invisible-island.net/xterm/ctlseqs/ctlseqs.html>
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Color {
+    /// Color #0 (foreground code `30`, background code `40`).
+    ///
+    /// This is not necessarily the background color, and using it as one may
+    /// render the text hard to read on terminals with dark backgrounds.
+    Black,
+
+    /// Color #0 (foreground code `90`, background code `100`).
+    BrightBlack,
+
+    /// Color #1 (foreground code `31`, background code `41`).
+    Red,
+
+    /// Color #1 (foreground code `91`, background code `101`).
+    BrightRed,
+
+    /// Color #2 (foreground code `32`, background code `42`).
+    Green,
+
+    /// Color #2 (foreground code `92`, background code `102`).
+    BrightGreen,
+
+    /// Color #3 (foreground code `33`, background code `43`).
+    Yellow,
+
+    /// Color #3 (foreground code `93`, background code `103`).
+    BrightYellow,
+
+    /// Color #4 (foreground code `34`, background code `44`).
+    Blue,
+
+    /// Color #4 (foreground code `94`, background code `104`).
+    BrightBlue,
+
+    /// Color #5 (foreground code `35`, background code `45`).
+    Purple,
+
+    /// Color #5 (foreground code `95`, background code `105`).
+    BrightPurple,
+
+    /// Color #5 (foreground code `35`, background code `45`).
+    Magenta,
+
+    /// Color #5 (foreground code `95`, background code `105`).
+    BrightMagenta,
+
+    /// Color #6 (foreground code `36`, background code `46`).
+    Cyan,
+
+    /// Color #6 (foreground code `96`, background code `106`).
+    BrightCyan,
+
+    /// Color #7 (foreground code `37`, background code `47`).
+    ///
+    /// As above, this is not necessarily the foreground color, and may be
+    /// hard to read on terminals with light backgrounds.
+    White,
+
+    /// Color #7 (foreground code `97`, background code `107`).
+    BrightWhite,
+
+    /// A color number from 0 to 255, for use in 256-color terminal
+    /// environments.
+    ///
+    /// - colors 0 to 7 are the `Black` to `White` variants respectively.
+    ///   These colors can usually be changed in the terminal emulator.
+    /// - colors 8 to 15 are brighter versions of the eight colors above.
+    ///   These can also usually be changed in the terminal emulator, or it
+    ///   could be configured to use the original colors and show the text in
+    ///   bold instead. It varies depending on the program.
+    /// - colors 16 to 231 contain several palettes of bright colors,
+    ///   arranged in six squares measuring six by six each.
+    /// - colors 232 to 255 are shades of grey from black to white.
+    ///
+    /// It might make more sense to look at a [color chart][cc].
+    ///
+    /// [cc]: https://upload.wikimedia.org/wikipedia/commons/1/15/Xterm_256color_chart.svg
+    Fixed(u8),
+
+    /// A 24-bit Rgb color, as specified by ISO-8613-3.
+    Rgb(u8, u8, u8),
+}
+
+impl From<AnsiColor> for Color {
+    fn from(clr: AnsiColor) -> Self {
+        match clr {
+            AnsiColor::Bit4(i) => match i {
+                30 | 40 => Self::Black,
+                31 | 41 => Self::Red,
+                32 | 42 => Self::Green,
+                33 | 43 => Self::Yellow,
+                34 | 44 => Self::Blue,
+                35 | 45 => Self::Magenta,
+                36 | 46 => Self::Cyan,
+                37 | 47 => Self::White,
+                90 | 100 => Self::BrightBlack,
+                91 | 101 => Self::BrightRed,
+                92 | 102 => Self::BrightGreen,
+                93 | 103 => Self::BrightYellow,
+                94 | 104 => Self::BrightBlue,
+                95 | 105 => Self::BrightMagenta,
+                96 | 106 => Self::BrightCyan,
+                97 | 107 => Self::BrightWhite,
+                n => Self::Fixed(n),
+            },
+            AnsiColor::Bit8(i) => Self::Fixed(i),
+            AnsiColor::Bit24 { r, g, b } => Self::Rgb(r, g, b),
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
