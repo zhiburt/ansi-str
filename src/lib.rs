@@ -631,6 +631,7 @@ fn get(text: &str, lower_bound: Option<usize>, upper_bound: Option<usize>) -> Op
 
                     if lower_bound > index {
                         start = lower_bound - index;
+                        index += start;
                     }
                 }
 
@@ -2193,6 +2194,19 @@ mod tests {
         );
 
         assert_eq!(text.ansi_get(105..).unwrap(), "\u{1b}[35m\u{1b}[39m\u{1b}[1;32m\u{1b}[0m\u{1b}[35m\u{1b}[39m\u{1b}[35m\u{1b}[39m\u{1b}[1;32m\u{1b}[0m\u{1b}[35m\u{1b}[39m\u{1b}[1;32m\u{1b}[0m\u{1b}[35m\u{1b}[39m\u{1b}[1;32m\u{1b}[0m\u{1b}[35m\u{1b}[39m\u{1b}[1;32m\u{1b}[0m\u{1b}[35m\u{1b}[39m\u{1b}[1;32m\u{1b}[0m\u{1b}[35m│\u{1b}[39m   \u{1b}[1;32mload_average\u{1b}[0m   \u{1b}[35m│\u{1b}[39m  \u{1b}[1;32mvendor_id\u{1b}[0m   \u{1b}[35m│\u{1b}[39m \u{1b}[35m│\u{1b}[39m");
+    }
+
+    #[test]
+    fn ansi_get_test_1() {
+        let text = "\u{1b}[35m│\u{1b}[39m       \u{1b}[35m│\u{1b}[39m \u{1b}[35m│\u{1b}[39m  \u{1b}[1;36m1\u{1b}[0m \u{1b}[35m│\u{1b}[39m \u{1b}[37mcpu0\u{1b}[0m  \u{1b}[35m│\u{1b}[39m \u{1b}[37m11th Gen Intel(R) Core(TM) i7-11850H @ 2.50GHz\u{1b}[0m \u{1b}[35m│\u{1b}[39m    \u{1b}[32m8\u{1b}[0m \u{1b}[35m│\u{1b}[39m    \u{1b}[31m0.0000\u{1b}[0m \u{1b}[35m│\u{1b}[39m \u{1b}[37m1.09, 1.44, 1.25\u{1b}[0m \u{1b}[35m│\u{1b}[39m \u{1b}[37mGenuineIntel\u{1b}[0m \u{1b}[35m│\u{1b}[39m \u{1b}[35m│\u{1b}[39m";
+
+        let result = text.ansi_get(..3).unwrap();
+        assert_eq!(result.ansi_strip(), Cow::Borrowed("│"));
+        assert_eq!(result, "\u{1b}[35m│\u{1b}[39m");
+
+        let result = text.ansi_get(123..).unwrap();
+        assert_eq!(result.ansi_strip(), Cow::Borrowed("25 │ GenuineIntel │ │"));
+        assert_eq!(result, "\u{1b}[35m\u{1b}[39m\u{1b}[35m\u{1b}[39m\u{1b}[35m\u{1b}[39m\u{1b}[1;36m\u{1b}[0m\u{1b}[35m\u{1b}[39m\u{1b}[37m\u{1b}[0m\u{1b}[35m\u{1b}[39m\u{1b}[37m\u{1b}[0m\u{1b}[35m\u{1b}[39m\u{1b}[32m\u{1b}[0m\u{1b}[35m\u{1b}[39m\u{1b}[31m\u{1b}[0m\u{1b}[35m\u{1b}[39m\u{1b}[37m25\u{1b}[0m \u{1b}[35m│\u{1b}[39m \u{1b}[37mGenuineIntel\u{1b}[0m \u{1b}[35m│\u{1b}[39m \u{1b}[35m│\u{1b}[39m");
     }
 
     #[test]
