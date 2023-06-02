@@ -1,3 +1,5 @@
+#![allow(clippy::uninlined_format_args)]
+
 //! # `ansi_str`
 //!
 //! A library which provides a set of methods to work with strings escaped with ansi sequences.
@@ -1817,6 +1819,10 @@ fn write_ansi_postfix(mut f: impl std::fmt::Write, state: &AnsiState) -> std::fm
         }
 
         if state.inverse {
+            emit!(f.write_str("27"));
+        }
+
+        if state.hide {
             emit!(f.write_str("28"));
         }
 
@@ -3042,6 +3048,34 @@ mod tests {
             [
                 "\u{1b}[2;48;5;10m\u{1b}[38;5;20mDar\u{1b}[22m\u{1b}[39m\u{1b}[49m",
                 "\u{1b}[2m\u{1b}[38;5;20m\u{1b}[48;5;10mren\u{1b}[0m"
+            ]
+        );
+    }
+
+    #[test]
+    fn ansi_split3_test_reverse() {
+        let a = "\u{1b}[37mCreate bytes from the \u{1b}[0m\u{1b}[7;34marg\u{1b}[0m\u{1b}[37muments.\u{1b}[0m"
+            .ansi_split("g")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            a,
+            [
+                "\u{1b}[37mCreate bytes from the \u{1b}[0m\u{1b}[7;34mar\u{1b}[27m\u{1b}[39m",
+                "\u{1b}[7m\u{1b}[34m\u{1b}[0m\u{1b}[37muments.\u{1b}[0m"
+            ]
+        );
+    }
+
+    #[test]
+    fn ansi_split4_test_hide() {
+        let a = "\u{1b}[37mCreate bytes from the \u{1b}[0m\u{1b}[8;34marg\u{1b}[0m\u{1b}[37muments.\u{1b}[0m"
+            .ansi_split("g")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            a,
+            [
+                "\u{1b}[37mCreate bytes from the \u{1b}[0m\u{1b}[8;34mar\u{1b}[28m\u{1b}[39m",
+                "\u{1b}[8m\u{1b}[34m\u{1b}[0m\u{1b}[37muments.\u{1b}[0m"
             ]
         );
     }
