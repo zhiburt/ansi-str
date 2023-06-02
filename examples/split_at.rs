@@ -10,7 +10,7 @@ fn main() {
 
     let (left, right) = text.ansi_split_at(6);
 
-    println!("text {}", text);
-    println!("left {}", left);
-    println!("left {}", right);
+    println!("text {text}");
+    println!("left {left}");
+    println!("left {right}");
 }

@@ -18,7 +18,7 @@ pub fn main() {
             continue;
         }
 
-        println!("{}", word);
+        println!("{word}");
     }
 }
 

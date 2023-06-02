@@ -10,6 +10,6 @@ pub fn main() {
 
     let cut = text.ansi_get(5..).expect("ansi_get mustn't fail");
 
-    println!("{}", text);
-    println!("{}", cut);
+    println!("{text}");
+    println!("{cut}");
 }
