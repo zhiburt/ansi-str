@@ -1155,12 +1155,15 @@ impl<'a> Iterator for AnsiBlockIter<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnsiBlock<'a> {
     text: Cow<'a, str>,
-    state: AnsiState,
+    state: Style,
 }
 
 impl<'a> AnsiBlock<'a> {
     fn new(text: Cow<'a, str>, state: AnsiState) -> Self {
-        Self { text, state }
+        Self {
+            text,
+            state: Style(state),
+        }
     }
 
     /// Text returns a text which is used in the [`AnsiBlock`].
@@ -1170,12 +1173,12 @@ impl<'a> AnsiBlock<'a> {
 
     /// The function checks wheather any grafic sequences are set in the [`AnsiBlock`].
     pub fn has_ansi(&self) -> bool {
-        self.state.has_any()
+        self.state.0.has_any()
     }
 
     /// Get a style representation
-    pub fn style(&self) -> Style {
-        Style(self.state)
+    pub fn style(&self) -> &Style {
+        &self.state
     }
 }
 
@@ -1669,6 +1672,7 @@ macro_rules! emit_block {
         //     $f.write_char('m')?;
         // }
 
+        #[allow(unused_macros)]
         macro_rules! emit {
             ($foo:expr) => {
                 $f.write_str("\u{1b}[")?;
@@ -1677,199 +1681,93 @@ macro_rules! emit_block {
             };
         }
 
+        #[allow(unused_macros)]
+        macro_rules! emit_str {
+            ($foo:expr) => {
+                $f.write_str("\u{1b}[")?;
+                $f.write_str($foo)?;
+                $f.write_char('m')?;
+            };
+        }
+
+        #[allow(unused_macros)]
+        macro_rules! cond {
+            ($foo:expr, $do:expr) => {
+                if $foo {
+                    $do;
+                }
+            };
+
+            ($name:ident => $foo:expr, $do:expr) => {
+                if let Some($name) = $foo {
+                    $do;
+                }
+            };
+        }
+
         $b
     };
 }
 
 fn write_ansi_prefix(mut f: impl std::fmt::Write, state: &AnsiState) -> std::fmt::Result {
+    #[rustfmt::skip]
     emit_block!(f, {
-        if state.bold {
-            emit!(f.write_str("1"));
-        }
-
-        if state.faint {
-            emit!(f.write_str("2"));
-        }
-
-        if state.italic {
-            emit!(f.write_str("3"));
-        }
-
-        if state.underline {
-            emit!(f.write_str("4"));
-        }
-
-        if state.slow_blink {
-            emit!(f.write_str("5"));
-        }
-
-        if state.rapid_blink {
-            emit!(f.write_str("6"));
-        }
-
-        if state.inverse {
-            emit!(f.write_str("7"));
-        }
-
-        if state.hide {
-            emit!(f.write_str("8"));
-        }
-
-        if state.crossedout {
-            emit!(f.write_str("9"));
-        }
-
-        if let Some(font) = state.font {
-            emit!(f.write_fmt(format_args!("{}", font)));
-        }
-
-        if state.fraktur {
-            emit!(f.write_str("20"));
-        }
-
-        if state.double_underline {
-            emit!(f.write_str("21"));
-        }
-
-        if state.proportional_spacing {
-            emit!(f.write_str("26"));
-        }
-
-        if let Some(color) = &state.fg_color {
-            emit!(write_color(&mut f, color, &ColorType::Fg));
-        }
-
-        if let Some(color) = &state.bg_color {
-            emit!(write_color(&mut f, color, &ColorType::Bg));
-        }
-
-        if let Some(color) = &state.undr_color {
-            emit!(write_color(&mut f, color, &ColorType::Undr));
-        }
-
-        if state.framed {
-            emit!(f.write_str("51"));
-        }
-
-        if state.encircled {
-            emit!(f.write_str("52"));
-        }
-
-        if state.overlined {
-            emit!(f.write_str("53"));
-        }
-
-        if state.igrm_underline {
-            emit!(f.write_str("60"));
-        }
-
-        if state.igrm_double_underline {
-            emit!(f.write_str("61"));
-        }
-
-        if state.igrm_overline {
-            emit!(f.write_str("62"));
-        }
-
-        if state.igrm_double_overline {
-            emit!(f.write_str("63"));
-        }
-
-        if state.igrm_stress_marking {
-            emit!(f.write_str("64"));
-        }
-
-        if state.superscript {
-            emit!(f.write_str("73"));
-        }
-
-        if state.subscript {
-            emit!(f.write_str("74"));
-        }
+        cond!(state.bold,                           emit_str!("1"));
+        cond!(state.faint,                          emit_str!("2"));
+        cond!(state.italic,                         emit_str!("3"));
+        cond!(state.underline,                      emit_str!("4"));
+        cond!(state.slow_blink,                     emit_str!("5"));
+        cond!(state.rapid_blink,                    emit_str!("6"));
+        cond!(state.inverse,                        emit_str!("7"));
+        cond!(state.hide,                           emit_str!("8"));
+        cond!(state.crossedout,                     emit_str!("9"));
+        cond!(font => state.font,                   emit!(f.write_fmt(format_args!("{}", font))));
+        cond!(state.fraktur,                        emit_str!("20"));
+        cond!(state.double_underline,               emit_str!("21"));
+        cond!(state.proportional_spacing,           emit_str!("26"));
+        cond!(color => &state.fg_color,             emit!(write_color(&mut f, color, &ColorType::Fg)));
+        cond!(color => &state.bg_color,             emit!(write_color(&mut f, color, &ColorType::Bg)));
+        cond!(color => &state.undr_color,           emit!(write_color(&mut f, color, &ColorType::Undr)));
+        cond!(state.framed,                         emit_str!("51"));
+        cond!(state.encircled,                      emit_str!("52"));
+        cond!(state.overlined,                      emit_str!("53"));
+        cond!(state.igrm_underline,                 emit_str!("60"));
+        cond!(state.igrm_double_underline,          emit_str!("61"));
+        cond!(state.igrm_overline,                  emit_str!("62"));
+        cond!(state.igrm_double_overline,           emit_str!("63"));
+        cond!(state.igrm_stress_marking,            emit_str!("64"));
+        cond!(state.superscript,                    emit_str!("73"));
+        cond!(state.subscript,                      emit_str!("74"));
     });
 
     Ok(())
 }
 
 fn write_ansi_postfix(mut f: impl std::fmt::Write, state: &AnsiState) -> std::fmt::Result {
+    #[rustfmt::skip]
     emit_block!(f, {
-        // do we need to reset on reset?
-        if state.unknown && state.reset {
-            emit!(f.write_char('0'));
-        }
-
-        if state.font.is_some() {
-            emit!(f.write_str("10"));
-        }
-
-        if state.bold || state.faint {
-            emit!(f.write_str("22"));
-        }
-
-        if state.italic {
-            emit!(f.write_str("23"));
-        }
-
-        if state.underline || state.double_underline {
-            emit!(f.write_str("24"));
-        }
-
-        if state.slow_blink || state.rapid_blink {
-            emit!(f.write_str("25"));
-        }
-
-        if state.inverse {
-            emit!(f.write_str("27"));
-        }
-
-        if state.hide {
-            emit!(f.write_str("28"));
-        }
-
-        if state.crossedout {
-            emit!(f.write_str("29"));
-        }
-
-        if state.fg_color.is_some() {
-            emit!(f.write_str("39"));
-        }
-
-        if state.bg_color.is_some() {
-            emit!(f.write_str("49"));
-        }
-
-        if state.proportional_spacing {
-            emit!(f.write_str("50"));
-        }
-
-        if state.encircled || state.framed {
-            emit!(f.write_str("54"));
-        }
-
-        if state.overlined {
-            emit!(f.write_str("55"));
-        }
-
-        if state.igrm_underline
-            || state.igrm_double_underline
-            || state.igrm_overline
-            || state.igrm_double_overline
-            || state.igrm_stress_marking
-        {
-            emit!(f.write_str("65"));
-        }
-
-        if state.undr_color.is_some() {
-            emit!(f.write_str("59"));
-        }
-
-        if state.subscript || state.superscript {
-            emit!(f.write_str("75"));
-        }
-
-        if state.unknown {
-            emit!(f.write_char('0'));
-        }
+        cond!(state.unknown && state.reset,                     emit_str!("0"));
+        cond!(state.font.is_some(),                             emit_str!("10"));
+        cond!(state.bold || state.faint,                        emit_str!("22"));
+        cond!(state.italic || state.fraktur,                    emit_str!("23"));
+        cond!(state.underline || state.double_underline,        emit_str!("24"));
+        cond!(state.slow_blink || state.rapid_blink,            emit_str!("25"));
+        cond!(state.inverse,                                    emit_str!("27"));
+        cond!(state.hide,                                       emit_str!("28"));
+        cond!(state.crossedout,                                 emit_str!("29"));
+        cond!(state.fg_color.is_some(),                         emit_str!("39"));
+        cond!(state.bg_color.is_some(),                         emit_str!("49"));
+        cond!(state.proportional_spacing,                       emit_str!("50"));
+        cond!(state.encircled || state.framed,                  emit_str!("54"));
+        cond!(state.overlined,                                  emit_str!("55"));
+        cond!(state.igrm_underline ||
+              state.igrm_double_underline ||
+              state.igrm_overline ||
+              state.igrm_double_overline ||
+              state.igrm_stress_marking,                        emit_str!("65"));
+        cond!(state.undr_color.is_some(),                       emit_str!("59"));
+        cond!(state.subscript || state.superscript,             emit_str!("75"));
+        cond!(state.unknown,                                    emit_str!("0"));
     });
 
     Ok(())
