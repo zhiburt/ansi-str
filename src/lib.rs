@@ -1644,7 +1644,8 @@ fn parse_sgr_color<'a>(sequence: &mut impl Iterator<Item = &'a str>) -> Option<A
 macro_rules! emit_block {
     ($f:expr, $b:block) => {
         // todo: uncomment when parsing ready
-
+        // The comment is left as an example that we could combine things by ';'.
+        //
         // macro_rules! __emit {
         //     ($foo:expr, $was_written:expr) => {
         //         if $was_written {
@@ -1653,21 +1654,21 @@ macro_rules! emit_block {
         //             $f.write_str("\u{1b}[")?;
         //             $was_written = true;
         //         }
-
+        //
         //         $foo?;
         //     };
         // }
-
+        //
         // let mut was_written = false;
-
+        //
         // macro_rules! emit {
         //     ($foo:expr) => {
         //         __emit!($foo, was_written)
         //     };
         // }
-
+        //
         // $b
-
+        //
         // if was_written {
         //     $f.write_char('m')?;
         // }
