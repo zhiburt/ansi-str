@@ -11,11 +11,10 @@
 //! # Example
 //!
 //! ```
-//! use owo_colors::*;
 //! use ansi_str::AnsiStr;
 //!
-//! let hello = "Hello World!".red().to_string();
-//! let (hello, world) = hello.ansi_split_at(6);
+//! let text = String::from("\u{1b}[31mHello World!\u{1b}[39m");
+//! let (hello, world) = text.ansi_split_at(6);
 //!
 //! println!("{}", hello);
 //! println!("{}", world);
@@ -34,9 +33,9 @@
 //! use ansi_str::AnsiStr;
 //!
 //! pub fn main() {
-//!     let hello1 = "\u{1b}[31mHello World!\u{1b}[0m";
-//!     let hello2 = hello1.ansi_get(..).unwrap();
-//!     assert_eq!(hello1, hello2)
+//!     let text = "\u{1b}[31mHello World!\u{1b}[0m";
+//!     let text1 = hello1.ansi_get(..).unwrap();
+//!     assert_eq!(text, text1)
 //! }
 //! ```
 
@@ -75,20 +74,19 @@ pub trait AnsiStr {
     /// Basic usage:
     ///
     /// ```
-    /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
     ///
-    /// let v = "🗻 on the 🌏".red().to_string();
+    /// let text = "\u{1b}[31m🗻 on the 🌏\u{1b}[39m";
     ///
-    /// assert_eq!(Some("🗻 on".red().to_string().into()), v.ansi_get(0..7));
+    /// assert_eq!(text.ansi_get(0..7), Some("\u{1b}[31m🗻 on\u{1b}[39m".into()));
     ///
     /// // indices not on UTF-8 sequence boundaries
-    /// assert!(v.ansi_get(1..).is_none());
-    /// assert!(v.ansi_get(..13).is_none());
+    /// assert!(text.ansi_get(1..).is_none());
+    /// assert!(text.ansi_get(..13).is_none());
     ///
     /// // going over boundries doesn't panic
-    /// assert!(v.ansi_get(..std::usize::MAX).is_some());
-    /// assert!(v.ansi_get(std::usize::MAX..).is_some());
+    /// assert!(text.ansi_get(..std::usize::MAX).is_some());
+    /// assert!(text.ansi_get(std::usize::MAX..).is_some());
     /// ```
     ///
     /// Text doesn't contain ansi sequences
@@ -96,9 +94,9 @@ pub trait AnsiStr {
     /// ```
     /// use ansi_str::AnsiStr;
     ///
-    /// let v = "🗻 on the 🌏";
+    /// let text = "🗻 on the 🌏";
     ///
-    /// assert_eq!(Some("on the 🌏".into()), v.ansi_get(5..));
+    /// assert_eq!(text.ansi_get(5..), Some("on the 🌏".into()));
     /// ```
     fn ansi_get<I>(&self, i: I) -> Option<Cow<'_, str>>
     where
@@ -122,23 +120,21 @@ pub trait AnsiStr {
     /// Basic usage:
     ///
     /// ```
-    /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
     ///
-    /// let v = "🗻 on the 🌏".red().on_black().to_string();
-    /// assert_eq!("🗻", v.ansi_cut(0..4).ansi_strip());
-    /// assert_eq!("🗻 on", v.ansi_cut(..7).ansi_strip());
-    /// assert_eq!("the 🌏", v.ansi_cut(8..).ansi_strip());
+    /// let text = "\u{1b}[31;40m🗻 on the 🌏\u{1b}[0m";
+    /// assert_eq!(text.ansi_cut(0..4).ansi_strip(), "🗻");
+    /// assert_eq!(text.ansi_cut(..7).ansi_strip(), "🗻 on");
+    /// assert_eq!(text.ansi_cut(8..).ansi_strip(), "the 🌏");
     /// ```
     ///
     /// Panics when index is not a valud UTF-8 char
     ///
     /// ```should_panic
-    /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
     ///
-    /// let v = "🗻 on the 🌏".yellow().to_string();
-    /// v.ansi_cut(1..);
+    /// let text = "\u{1b}[31;40m🗻 on the 🌏\u{1b}[0m";
+    /// text.ansi_cut(1..);
     /// ```
     fn ansi_cut<I>(&self, i: I) -> Cow<'_, str>
     where
@@ -153,21 +149,20 @@ pub trait AnsiStr {
     /// Basic usage:
     ///
     /// ```
-    /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
     ///
-    /// let s = "Löwe 老虎 Léopard".blue().to_string();
+    /// let text = "\u{1b}[34mLöwe 老虎 Léopard\u{1b}[39m";
     ///
-    /// assert!(s.ansi_is_char_boundary(0));
+    /// assert!(text.ansi_is_char_boundary(0));
     /// // start of `老`
-    /// assert!(s.ansi_is_char_boundary(6));
-    /// assert!(s.ansi_is_char_boundary(s.ansi_strip().len()));
+    /// assert!(text.ansi_is_char_boundary(6));
+    /// assert!(text.ansi_is_char_boundary(text.ansi_strip().len()));
     ///
     /// // second byte of `ö`
-    /// assert!(!s.ansi_is_char_boundary(2));
+    /// assert!(!text.ansi_is_char_boundary(2));
     ///
     /// // third byte of `老`
-    /// assert!(!s.ansi_is_char_boundary(8));
+    /// assert!(!text.ansi_is_char_boundary(8));
     /// ```
     fn ansi_is_char_boundary(&self, index: usize) -> bool;
 
@@ -181,14 +176,12 @@ pub trait AnsiStr {
     /// Basic usage:
     ///
     /// ```
-    /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
     ///
-    /// let s = "Löwe 老虎 Léopard Gepardi".red().on_black().to_string();
-    ///
-    /// assert_eq!(s.ansi_find("L"), Some(0));
-    /// assert_eq!(s.ansi_find("é"), Some(14));
-    /// assert_eq!(s.ansi_find("pard"), Some(17));
+    /// let text = "\u{1b}[31;40mLöwe 老虎 Léopard Gepardi\u{1b}[0m";
+    /// assert_eq!(text.ansi_find("L"), Some(0));
+    /// assert_eq!(text.ansi_find("é"), Some(14));
+    /// assert_eq!(text.ansi_find("pard"), Some(17));
     /// ```
     fn ansi_find(&self, pat: &str) -> Option<usize>;
 
@@ -204,20 +197,16 @@ pub trait AnsiStr {
     /// Basic usage:
     ///
     /// ```
-    /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
     ///
+    /// let text = "\u{1b}[31mfoo:bar\u{1b}[0m";
     /// assert_eq!(
-    ///     "foo:bar".red().to_string().ansi_strip_prefix("foo:"),
-    ///     Some("bar".red().to_string().into()),
+    ///     text.ansi_strip_prefix("foo"),
+    ///     Some("\u{1b}[31m:bar\u{1b}[0m".into()),
     /// );
     /// assert_eq!(
-    ///     "foo:bar".red().to_string().ansi_strip_prefix("bar"),
+    ///     text.ansi_strip_prefix("bar"),
     ///     None,
-    /// );
-    /// assert_eq!(
-    ///     "foofoo".red().to_string().ansi_strip_prefix("foo"),
-    ///     Some("foo".red().to_string().into()),
     /// );
     /// ```
     fn ansi_strip_prefix(&self, prefix: &str) -> Option<Cow<'_, str>>;
@@ -234,12 +223,11 @@ pub trait AnsiStr {
     /// Basic usage:
     ///
     /// ```
-    /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
     ///
-    /// assert_eq!("bar:foo".red().to_string().ansi_strip_suffix(":foo"), Some("bar".red().to_string().into()));
-    /// assert_eq!("bar:foo".red().to_string().ansi_strip_suffix("bar"), None);
-    /// assert_eq!("foofoo".red().to_string().ansi_strip_suffix("foo"), Some("foo".red().to_string().into()));
+    /// let text = "\u{1b}[31mfoo:bar\u{1b}[0m";
+    /// assert_eq!(text.ansi_strip_suffix("bar"), Some("\u{1b}[31mfoo:\u{1b}[0m".into()));
+    /// assert_eq!(text.ansi_strip_suffix("foo"), None);
     /// ```
     fn ansi_strip_suffix(&self, pat: &str) -> Option<Cow<'_, str>>;
 
@@ -251,34 +239,33 @@ pub trait AnsiStr {
     /// Basic usage:
     ///
     /// ```
-    /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
     ///
-    /// let text = "Mary had a little lamb".red().to_string();
+    /// let text = "\u{1b}[31mMary had a little lamb\u{1b}[0m";
     ///
     /// let words: Vec<_> = text.ansi_split(" ").collect();
     ///
     /// assert_eq!(
     ///     words,
     ///     [
-    ///         "Mary".red().to_string(),
-    ///         "had".red().to_string(),
-    ///         "a".red().to_string(),
-    ///         "little".red().to_string(),
-    ///         "lamb".red().to_string(),
+    ///         "\u{1b}[31mMary\u{1b}[39m",
+    ///         "\u{1b}[31mhad\u{1b}[39m",
+    ///         "\u{1b}[31ma\u{1b}[39m",
+    ///         "\u{1b}[31mlittle\u{1b}[39m",
+    ///         "\u{1b}[31mlamb\u{1b}[0m",
     ///     ]
     /// );
     ///
-    /// let v: Vec<_> = "".ansi_split("X").collect();
-    /// assert_eq!(v, [""]);
+    /// let words: Vec<_> = "".ansi_split("X").collect();
+    /// assert_eq!(words, [""]);
     ///
-    /// let text = "lionXXtigerXleopard".red().to_string();
-    /// let v: Vec<_> = text.ansi_split("X").collect();
-    /// assert_eq!(v, ["lion".red().to_string(), "".to_string(), "tiger".red().to_string(), "leopard".red().to_string()]);
+    /// let text = "\u{1b}[31mlionXXtigerXleopard\u{1b}[0m";
+    /// let words: Vec<_> = text.ansi_split("X").collect();
+    /// assert_eq!(words, ["\u{1b}[31mlion\u{1b}[39m", "", "\u{1b}[31mtiger\u{1b}[39m", "\u{1b}[31mleopard\u{1b}[0m"]);
     ///
-    /// let text = "lion::tiger::leopard".red().to_string();
-    /// let v: Vec<_> = text.ansi_split("::").collect();
-    /// assert_eq!(v, ["lion".red().to_string(), "tiger".red().to_string(), "leopard".red().to_string()]);
+    /// let text = "\u{1b}[31mlion::tiger::leopard\u{1b}[0m";
+    /// let words: Vec<_> = text.ansi_split("::").collect();
+    /// assert_eq!(words, ["\u{1b}[31mlion\u{1b}[39m", "\u{1b}[31mtiger\u{1b}[39m", "\u{1b}[31mleopard\u{1b}[0m"]);
     /// ```
     fn ansi_split<'a>(&'a self, pat: &'a str) -> AnsiSplit<'a>;
 
@@ -299,26 +286,24 @@ pub trait AnsiStr {
     /// Basic usage:
     ///
     /// ```
-    /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
     ///
-    /// let s = "Per Martin-Löf".red().on_black().to_string();
+    /// let text = "\u{1b}[31;40mPer Martin-Löf\u{1b}[0m";
     ///
-    /// let (first, last) = s.ansi_split_at(3);
+    /// let (first, last) = text.ansi_split_at(3);
     ///
-    /// assert_eq!("Per", first.ansi_strip());
-    /// assert_eq!(" Martin-Löf", last.ansi_strip());
+    /// assert_eq!(first.ansi_strip(), "Per");
+    /// assert_eq!(last.ansi_strip(), " Martin-Löf");
     /// ```
     ///
     /// Panic
     ///
     /// ```should_panic
     /// use ansi_str::AnsiStr;
-    /// use owo_colors::*;
     ///
-    /// let s = "Per Martin-Löf".red().on_black().to_string();
+    /// let text = "\u{1b}[31;40mPer Martin-Löf\u{1b}[0m";
     ///
-    /// s.ansi_split_at(13);
+    /// text.ansi_split_at(13);
     /// ```
     fn ansi_split_at(&self, mid: usize) -> (Cow<'_, str>, Cow<'_, str>);
 
@@ -332,13 +317,12 @@ pub trait AnsiStr {
     /// Basic usage:
     ///
     /// ```
-    /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
     ///
-    /// let bananas = "bananas".red().on_black().to_string();
+    /// let text = "\u{1b}[31;40mbananas\u{1b}[0m";
     ///
-    /// assert!(bananas.ansi_starts_with("bana"));
-    /// assert!(!bananas.ansi_starts_with("nana"));
+    /// assert!(text.ansi_starts_with("bana"));
+    /// assert!(!text.ansi_starts_with("nana"));
     /// ```
     fn ansi_starts_with(&self, pat: &str) -> bool;
 
@@ -352,13 +336,12 @@ pub trait AnsiStr {
     /// Basic usage:
     ///
     /// ```
-    /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
     ///
-    /// let bananas = "bananas".red().on_black().to_string();
+    /// let text = "\u{1b}[31;40mbananas\u{1b}[0m";
     ///
-    /// assert!(bananas.ansi_ends_with("anas"));
-    /// assert!(!bananas.ansi_ends_with("nana"));
+    /// assert!(text.ansi_ends_with("anas"));
+    /// assert!(!text.ansi_ends_with("nana"));
     /// ```
     fn ansi_ends_with(&self, pat: &str) -> bool;
 
@@ -370,12 +353,11 @@ pub trait AnsiStr {
     /// Basic usage:
     ///
     /// ```
-    /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
     ///
-    /// let s = " Hello\tworld\t".red().to_string();
+    /// let text = String::from("\u{1b}[31m Hello\tworld\t\u{1b}[39m");
     ///
-    /// assert_eq!("Hello\tworld".red().to_string(), s.ansi_trim());
+    /// assert_eq!(text.ansi_trim(), "\u{1b}[31mHello\tworld\u{1b}[39m");
     /// ```
     fn ansi_trim(&self) -> Cow<'_, str>;
 
@@ -386,12 +368,11 @@ pub trait AnsiStr {
     /// Basic usage:
     ///
     /// ```
-    /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
     ///
-    /// let hello = "Hello World!".red().on_black().to_string();
+    /// let text = "\u{1b}[31;40mHello World!\u{1b}[0m";
     ///
-    /// assert_eq!(hello.ansi_strip(), "Hello World!");
+    /// assert_eq!(text.ansi_strip(), "Hello World!");
     /// ```
     fn ansi_strip(&self) -> Cow<'_, str>;
 
@@ -404,11 +385,10 @@ pub trait AnsiStr {
     /// Basic usage:
     ///
     /// ```
-    /// use owo_colors::*;
     /// use ansi_str::AnsiStr;
     ///
     /// assert!(!"Hi".ansi_has_any());
-    /// assert!("Hi".red().to_string().ansi_has_any());
+    /// assert!("\u{1b}[31;40mHi\u{1b}[0m".ansi_has_any());
     /// ```
     fn ansi_has_any(&self) -> bool;
 }
@@ -1082,12 +1062,11 @@ impl<'a> Iterator for AnsiSplit<'a> {
 /// # Example
 ///
 /// ```
-/// use owo_colors::*;
 /// use ansi_str::get_blocks;
 ///
-/// let message = format!("{} {}", "Hello".red(), "World".blue());
+/// let text = "\u{1b}[31;40mHello\u{1b}[0m \u{1b}[31mWorld!\u{1b}[39m";
 ///
-/// for block in get_blocks(&message) {
+/// for block in get_blocks(&text) {
 ///     println!("{:?}", block.text());
 /// }
 /// ```

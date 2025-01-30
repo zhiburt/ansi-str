@@ -1,15 +1,10 @@
 use ansi_str::AnsiStr;
-use owo_colors::{colors::*, OwoColorize};
 
 pub fn main() {
-    let text = "When the night has come"
-        .fg::<Red>()
-        .bg::<Cyan>()
-        .bold()
-        .to_string();
+    let text = "\u{1b}[1m\u{1b}[31;46mWhen the night has come\u{1b}[0m\u{1b}[0m";
 
-    let cut = text.ansi_get(5..).expect("ansi_get mustn't fail");
+    let slice = text.ansi_get(5..).expect("ok");
 
-    println!("{text}");
-    println!("{cut}");
+    println!("text={text}");
+    println!("slice={slice}");
 }

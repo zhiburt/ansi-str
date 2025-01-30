@@ -1,5 +1,4 @@
 use ansi_str::AnsiStr;
-use owo_colors::{colors::*, OwoColorize};
 
 pub fn main() {
     let text = "
@@ -11,10 +10,10 @@ pub fn main() {
         X Ambassadors - Belong
     ";
 
-    let colored_text = colorize_text(text);
+    let text = colorize(text);
 
-    for word in colored_text.ansi_split(" ") {
-        if word.ansi_strip().trim().is_empty() {
+    for word in text.ansi_split(" ") {
+        if word.ansi_strip().is_empty() {
             continue;
         }
 
@@ -22,40 +21,23 @@ pub fn main() {
     }
 }
 
-fn colorize_text(text: &str) -> String {
+fn colorize(text: &str) -> String {
     let mut buf = Vec::new();
-    for line in text.lines() {
+    for (i, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
             continue;
         }
 
-        buf.push(colorize(line));
+        let line = if i % 2 == 0 {
+            format!("\u{1b}[31;40m{line}\u{1b}[0m")
+        } else if i % 3 == 0 {
+            format!("\u{1b}[32;43m{line}\u{1b}[0m")
+        } else {
+            format!("\u{1b}[46m{line}\u{1b}[0m")
+        };
+
+        buf.push(line);
     }
 
     buf.join("\n")
-}
-
-fn colorize(s: &str) -> String {
-    let mut buf = Vec::new();
-    for (i, c) in s.chars().enumerate() {
-        let s = match i {
-            _ if c == ' ' => c.fg::<Black>().to_string(),
-            _ if i % 2 == 0 => c.blue().to_string(),
-            _ if i % 3 == 0 => c.red().to_string(),
-            _ if i % 5 == 0 => c.yellow().to_string(),
-            _ => c.cyan().to_string(),
-        };
-
-        let s = match i {
-            _ if c == ' ' => s.bg::<Black>().to_string(),
-            _ if i % 2 == 0 => s.bg::<BrightGreen>().to_string(),
-            _ if i % 3 == 0 => s.bg::<BrightBlack>().to_string(),
-            _ if i % 5 == 0 => s.bg::<BrightBlue>().to_string(),
-            _ => s.bg::<BrightMagenta>().to_string(),
-        };
-
-        buf.push(s);
-    }
-
-    buf.join("")
 }
