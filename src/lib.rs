@@ -958,41 +958,12 @@ fn has_any(text: &str) -> bool {
 }
 
 fn strip_ansi_sequences(text: &str) -> Cow<'_, str> {
-    let mut buf = String::new();
-    let mut tokens = parse_ansi(text);
-
-    {
-        // doing small optimization in regard of string with no ansi sequences
-        // which will contain only 1 block of text.
-
-        let t1 = match tokens.next() {
-            Some(t) => t,
-            None => return Cow::Borrowed(""),
-        };
-
-        match tokens.next() {
-            Some(t2) => {
-                if t1.kind() == ElementKind::Text {
-                    let s = &text[t1.start()..t1.end()];
-                    buf.push_str(s);
-                }
-
-                if t2.kind() == ElementKind::Text {
-                    let s = &text[t2.start()..t2.end()];
-                    buf.push_str(s);
-                }
-            }
-            None => {
-                return match t1.kind() {
-                    ElementKind::Text => {
-                        let s = &text[t1.start()..t1.end()];
-                        Cow::Borrowed(s)
-                    }
-                    _ => Cow::Borrowed(""),
-                }
-            }
-        };
+    if !has_any(text) {
+        return Cow::Borrowed(text);
     }
+
+    let mut buf = String::new();
+    let tokens = parse_ansi(text);
 
     for token in tokens {
         if token.kind() == ElementKind::Text {
