@@ -1043,10 +1043,12 @@ impl<'a> Iterator for AnsiSplit<'a> {
 /// ```
 #[must_use]
 pub fn get_blocks(text: &str) -> AnsiBlockIter<'_> {
+    let tokens = parse_ansi(text);
+
     AnsiBlockIter {
-        buf: None,
+        buf: String::new(),
         state: AnsiState::default(),
-        tokens: parse_ansi(text),
+        tokens,
         text,
     }
 }
@@ -1056,7 +1058,7 @@ pub fn get_blocks(text: &str) -> AnsiBlockIter<'_> {
 pub struct AnsiBlockIter<'a> {
     text: &'a str,
     tokens: AnsiIterator<'a>,
-    buf: Option<String>,
+    buf: String,
     state: AnsiState,
 }
 
@@ -1066,42 +1068,33 @@ impl<'a> Iterator for AnsiBlockIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let token = self.tokens.next()?;
+            let token_text = &self.text[token.start()..token.end()];
+
             match token.kind() {
                 ElementKind::Text => {
-                    let text = &self.text[token.start()..token.end()];
-                    // todo: fix the clone to borrowing.
-                    let text = match self.buf.take() {
-                        Some(mut buf) => {
-                            buf.push_str(text);
+                    let text = match self.buf.is_empty() {
+                        true => Cow::Borrowed(token_text),
+                        false => {
+                            let mut buf = std::mem::take(&mut self.buf);
+                            buf.push_str(token_text);
                             Cow::Owned(buf)
                         }
-                        None => Cow::Borrowed(text),
                     };
 
                     return Some(AnsiBlock::new(text, self.state));
                 }
                 ElementKind::Sgr => {
-                    let seq = &self.text[token.start()..token.end()];
-                    update_ansi_state(&mut self.state, seq);
+                    update_ansi_state(&mut self.state, token_text);
                 }
                 _ => {
-                    let buf = match self.buf.as_mut() {
-                        Some(buf) => buf,
-                        None => {
-                            self.buf = Some(String::new());
-                            self.buf.as_mut().unwrap()
-                        }
-                    };
-
-                    let seq = &self.text[token.start()..token.end()];
-                    write_list!(buf, seq);
+                    write_list!(self.buf, token_text);
                 }
             }
         }
     }
 }
 
-/// An structure which represents a text and it's grafic settings.
+/// An structure which represents a text and its grafic settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnsiBlock<'a> {
     text: Cow<'a, str>,
@@ -1109,6 +1102,7 @@ pub struct AnsiBlock<'a> {
 }
 
 impl<'a> AnsiBlock<'a> {
+    /// Create a new block of text with its grafic settings.
     fn new<I>(text: I, state: AnsiState) -> Self
     where
         I: Into<Cow<'a, str>>,
@@ -1124,14 +1118,14 @@ impl<'a> AnsiBlock<'a> {
         self.text.as_ref()
     }
 
-    /// The function checks wheather any grafic sequences are set in the [`AnsiBlock`].
-    pub fn has_ansi(&self) -> bool {
-        self.state.0.has_any()
-    }
-
     /// Get a style representation
     pub fn style(&self) -> &Style {
         &self.state
+    }
+
+    /// The function checks wheather any grafic sequences are set in the [`AnsiBlock`].
+    pub fn has_ansi(&self) -> bool {
+        self.state.0.has_any()
     }
 }
 
@@ -1153,11 +1147,6 @@ impl std::fmt::Display for AnsiSequenceStart<'_> {
 /// through the [`std::fmt::Display`].
 pub struct AnsiSequenceEnd<'a>(&'a AnsiState);
 
-impl AnsiSequenceEnd<'_> {
-    /// 'ESC[0m' sequence which can be used in any case.
-    pub const RESET_ALL: &'static str = "\u{1b}[0m";
-}
-
 impl std::fmt::Display for AnsiSequenceEnd<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if !self.0.has_any() {
@@ -1173,25 +1162,33 @@ impl std::fmt::Display for AnsiSequenceEnd<'_> {
 pub struct Style(AnsiState);
 
 impl Style {
+    /// 'ESC[0m' sequence which can be used in any case.
+    pub const RESET: Self = Self({
+        let mut state = AnsiState::empty();
+        state.reset = true;
+        state.unknown = true;
+        state
+    });
+
     /// Returns a [`AnsiSequenceStart`] object which can be used to produce a ansi sequences which sets the grafic mode.
     #[must_use]
-    pub fn start(&self) -> AnsiSequenceStart<'_> {
+    pub fn get_prefix(&self) -> AnsiSequenceStart<'_> {
         AnsiSequenceStart(&self.0)
     }
 
     /// Returns a [`AnsiSequenceEnd`] object which can be used to produce a ansi sequences which ends the grafic mode.
     #[must_use]
-    pub fn end(&self) -> AnsiSequenceEnd<'_> {
+    pub fn get_suffix(&self) -> AnsiSequenceEnd<'_> {
         AnsiSequenceEnd(&self.0)
     }
 
     /// Returns a foreground color if any was used.
-    pub fn foreground(&self) -> Option<Color> {
+    pub fn get_foreground_color(&self) -> Option<Color> {
         self.0.fg_color.map(Color::from)
     }
 
     /// Returns a background color if any was used.
-    pub fn background(&self) -> Option<Color> {
+    pub fn get_background_color(&self) -> Option<Color> {
         self.0.bg_color.map(Color::from)
     }
 }
@@ -1372,7 +1369,43 @@ struct AnsiState {
 }
 
 impl AnsiState {
+    const fn empty() -> Self {
+        Self {
+            fg_color: None,
+            bg_color: None,
+            undr_color: None,
+            bold: false,
+            faint: false,
+            italic: false,
+            underline: false,
+            double_underline: false,
+            slow_blink: false,
+            rapid_blink: false,
+            inverse: false,
+            hide: false,
+            crossedout: false,
+            reset: false,
+            framed: false,
+            encircled: false,
+            font: None,
+            fraktur: false,
+            proportional_spacing: false,
+            overlined: false,
+            igrm_underline: false,
+            igrm_double_underline: false,
+            igrm_overline: false,
+            igrm_double_overline: false,
+            igrm_stress_marking: false,
+            superscript: false,
+            subscript: false,
+            unknown: false,
+        }
+    }
+
     fn has_any(&self) -> bool {
+        // NOTE: we explicitly check for RESET & UNKNOWN because
+        //       if only RESET was present then we consider it has NO STYLE
+
         self.fg_color.is_some()
             || self.bg_color.is_some()
             || self.undr_color.is_some()
@@ -1652,7 +1685,7 @@ macro_rules! emit_block {
                 }
             };
 
-            ($name:ident => $foo:expr, $do:expr) => {
+            ($foo:expr => $name:ident, $do:expr) => {
                 if let Some($name) = $foo {
                     $do;
                 }
@@ -1675,13 +1708,13 @@ fn write_ansi_prefix(mut f: impl std::fmt::Write, state: &AnsiState) -> std::fmt
         cond!(state.inverse,                        emit_str!("7"));
         cond!(state.hide,                           emit_str!("8"));
         cond!(state.crossedout,                     emit_str!("9"));
-        cond!(font => state.font,                   emit!(f.write_fmt(format_args!("{}", font))));
+        cond!(state.font => font,                   emit!(f.write_fmt(format_args!("{}", font))));
         cond!(state.fraktur,                        emit_str!("20"));
         cond!(state.double_underline,               emit_str!("21"));
         cond!(state.proportional_spacing,           emit_str!("26"));
-        cond!(color => &state.fg_color,             emit!(write_color(&mut f, color, &ColorType::Fg)));
-        cond!(color => &state.bg_color,             emit!(write_color(&mut f, color, &ColorType::Bg)));
-        cond!(color => &state.undr_color,           emit!(write_color(&mut f, color, &ColorType::Undr)));
+        cond!(state.fg_color => color,              emit!(write_color(&mut f, &color, &ColorType::Fg)));
+        cond!(state.bg_color => color,              emit!(write_color(&mut f, &color, &ColorType::Bg)));
+        cond!(state.undr_color => color,            emit!(write_color(&mut f, &color, &ColorType::Undr)));
         cond!(state.framed,                         emit_str!("51"));
         cond!(state.encircled,                      emit_str!("52"));
         cond!(state.overlined,                      emit_str!("53"));
@@ -1700,7 +1733,7 @@ fn write_ansi_prefix(mut f: impl std::fmt::Write, state: &AnsiState) -> std::fmt
 fn write_ansi_postfix(mut f: impl std::fmt::Write, state: &AnsiState) -> std::fmt::Result {
     #[rustfmt::skip]
     emit_block!(f, {
-        cond!(state.unknown && state.reset,                     emit_str!("0"));
+        // cond!(state.unknown && state.reset,                     emit_str!("0")); // NOTE: we don't need to emit it since it will be repeated in state.unknown -- so no double repeat
         cond!(state.font.is_some(),                             emit_str!("10"));
         cond!(state.bold || state.faint,                        emit_str!("22"));
         cond!(state.italic || state.fraktur,                    emit_str!("23"));
@@ -2892,11 +2925,11 @@ mod tests {
 
     #[test]
     fn ansi_split2_test() {
-        let a = "\u{1b}[2;48;5;10m\u{1b}[38;5;20mDar\nren\u{1b}[0m"
+        let list = "\u{1b}[2;48;5;10m\u{1b}[38;5;20mDar\nren\u{1b}[0m"
             .ansi_split("\n")
             .collect::<Vec<_>>();
         assert_eq!(
-            a,
+            list,
             [
                 "\u{1b}[2;48;5;10m\u{1b}[38;5;20mDar\u{1b}[22m\u{1b}[39m\u{1b}[49m",
                 "\u{1b}[2m\u{1b}[38;5;20m\u{1b}[48;5;10mren\u{1b}[0m"
@@ -2906,11 +2939,11 @@ mod tests {
 
     #[test]
     fn ansi_split3_test_reverse() {
-        let a = "\u{1b}[37mCreate bytes from the \u{1b}[0m\u{1b}[7;34marg\u{1b}[0m\u{1b}[37muments.\u{1b}[0m"
+        let list = "\u{1b}[37mCreate bytes from the \u{1b}[0m\u{1b}[7;34marg\u{1b}[0m\u{1b}[37muments.\u{1b}[0m"
             .ansi_split("g")
             .collect::<Vec<_>>();
         assert_eq!(
-            a,
+            list,
             [
                 "\u{1b}[37mCreate bytes from the \u{1b}[0m\u{1b}[7;34mar\u{1b}[27m\u{1b}[39m",
                 "\u{1b}[7m\u{1b}[34m\u{1b}[0m\u{1b}[37muments.\u{1b}[0m"
@@ -2920,11 +2953,11 @@ mod tests {
 
     #[test]
     fn ansi_split4_test_hide() {
-        let a = "\u{1b}[37mCreate bytes from the \u{1b}[0m\u{1b}[8;34marg\u{1b}[0m\u{1b}[37muments.\u{1b}[0m"
+        let list = "\u{1b}[37mCreate bytes from the \u{1b}[0m\u{1b}[8;34marg\u{1b}[0m\u{1b}[37muments.\u{1b}[0m"
             .ansi_split("g")
             .collect::<Vec<_>>();
         assert_eq!(
-            a,
+            list,
             [
                 "\u{1b}[37mCreate bytes from the \u{1b}[0m\u{1b}[8;34mar\u{1b}[28m\u{1b}[39m",
                 "\u{1b}[8m\u{1b}[34m\u{1b}[0m\u{1b}[37muments.\u{1b}[0m"
@@ -2933,25 +2966,31 @@ mod tests {
     }
 
     #[test]
+    fn style_reset() {
+        let string = format!("{}", Style::RESET.get_prefix());
+        assert_eq!(string, "");
+        let string = format!("{}", Style::RESET.get_suffix());
+        assert_eq!(string, "\u{1b}[0m");
+    }
+
+    #[test]
     fn get_blocks_utf8_0() {
         let text = "ó\u{b}\u{b}\u{b}\"\u{b}9\u{b}Q\u{b}i\u{b}€\u{b}˜\u{b}°\u{b}È\u{b}á\u{b}ù\u{c}\u{12}\u{c}*\u{c}C\u{c}\\\u{c}u\u{c}Ž\u{c}§\u{c}À\u{c}Ù\u{c}ó&@ZtŽ©ÃÞø\u{e}\u{13}\u{e}.\u{e}I\u{e}d\u{e}\u{7f}\u{e}›\u{e}¶\u{e}Ò\u{e}î\u{f}    \u{f}%\u{f}A\u{f}^\u{f}z\u{f}–\u{f}³\u{f}Ï\u{f}ì\u{10}    \u{10}&\u{10}C\u{10}a\u{10}~\u{10}›\u{10}¹\u{10}×\u{10}õ\u{11}\u{13}\u{11}1\u{11}O\u{11}m\u{11}Œ\u{11}ª\u{11}É\u{11}è\u{12}\u{7}\u{12}&\u{12}E\u{12}d\u{12}„\u{12}£\u{12}Ã\u{12}ã\u{13}\u{3}\u{13}#\u{13}C\u{13}c\u{13}ƒ\u{13}¤\u{13}Å\u{13}å\u{14}\u{6}\u{14}'\u{14}I\u{14}j\u{14}‹\u{14}\u{ad}\u{14}Î\u{14}ð\u{15}\u{12}\u{15}4\u{15}V\u{15}x\u{15}›\u{15}½\u{15}à\u{16}\u{3}\u{16}&\u{16}I\u{16}l\u{16}\u{8f}\u{16}²\u{16}Ö\u{16}ú\u{17}\u{1d}\u{17}A\u{17}e\u{17}‰\u{17}®\u{17}Ò\u{17}÷\u{18}\u{1b}\u{18}@\u{18}e\u{18}Š\u{18}¯\u{18}Õ\u{18}ú\u{19} \u{19}E\u{19}k\u{19}‘\u{19}·\u{19}Ý\u{1a}\u{4}\u{1a}*\u{1a}Q\u{1a}w\u{1a}ž\u{1a}Å\u{1a}ì\u{1b}\u{14}\u{1b};\u{1b}c\u{1b}Š\u{1b}²\u{1b}Ú\u{1c}\u{2}\u{1c}*\u{1c}R\u{1c}{\u{1c}£\u{1c}Ì\u{1c}õ\u{1d}\u{1e}\u{1d}G\u{1d}p\u{1d}™\u{1d}Ã\u{1d}ì\u{1e}\u{16}\u{1e}@\u{1e}j\u{1e}”\u{1e}¾\u{1e}é\u{1f}\u{13}\u{1f}>\u{1f}i\u{1f}”\u{1f}¿\u{1f}ê \u{15} A l ˜ Ä ð!\u{1c}!H!u!¡!Î!û\"'\"U\"‚\"¯\"Ý#";
 
         let blocks = get_blocks(text).collect::<Vec<_>>();
-
         assert_eq!(
             blocks,
             vec![
-                AnsiBlock::new("ó\u{b}\u{b}\u{b}\"\u{b}9\u{b}Q\u{b}i\u{b}€\u{b}˜\u{b}°\u{b}È\u{b}á\u{b}ù\u{c}\u{12}\u{c}*\u{c}C\u{c}\\\u{c}u\u{c}Ž\u{c}§\u{c}À\u{c}Ù\u{c}ó&@ZtŽ©ÃÞø\u{e}\u{13}\u{e}.\u{e}I\u{e}d\u{e}\u{7f}\u{e}›\u{e}¶\u{e}Ò\u{e}î\u{f}    \u{f}%\u{f}A\u{f}^\u{f}z\u{f}–\u{f}³\u{f}Ï\u{f}ì\u{10}    \u{10}&\u{10}C\u{10}a\u{10}~\u{10}›\u{10}¹\u{10}×\u{10}õ\u{11}\u{13}\u{11}1\u{11}O\u{11}m\u{11}Œ\u{11}ª\u{11}É\u{11}è\u{12}\u{7}\u{12}&\u{12}E\u{12}d\u{12}„\u{12}£\u{12}Ã\u{12}ã\u{13}\u{3}\u{13}#\u{13}C\u{13}c\u{13}ƒ\u{13}¤\u{13}Å\u{13}å\u{14}\u{6}\u{14}'\u{14}I\u{14}j\u{14}‹\u{14}\u{ad}\u{14}Î\u{14}ð\u{15}\u{12}\u{15}4\u{15}V\u{15}x\u{15}›\u{15}½\u{15}à\u{16}\u{3}\u{16}&\u{16}I\u{16}l\u{16}\u{8f}\u{16}²\u{16}Ö\u{16}ú\u{17}\u{1d}\u{17}A\u{17}e\u{17}‰\u{17}®\u{17}Ò\u{17}÷\u{18}", AnsiState::default()),
-                AnsiBlock::new("\u{1b}\u{18}@\u{18}e\u{18}Š\u{18}¯\u{18}Õ\u{18}ú\u{19} \u{19}E\u{19}k\u{19}‘\u{19}·\u{19}Ý\u{1a}\u{4}\u{1a}*\u{1a}Q\u{1a}w\u{1a}ž\u{1a}Å\u{1a}ì", AnsiState::default()),
-                AnsiBlock::new("\u{1b}\u{14}", AnsiState::default()),
-                AnsiBlock::new("\u{1b};\u{1b}c\u{1b}Š", AnsiState::default()),
-                AnsiBlock::new("\u{1b}²", AnsiState::default()),
-                AnsiBlock::new("\u{1b}Ú\u{1c}\u{2}\u{1c}*\u{1c}R\u{1c}{\u{1c}£\u{1c}Ì\u{1c}õ\u{1d}\u{1e}\u{1d}G\u{1d}p\u{1d}™\u{1d}Ã\u{1d}ì\u{1e}\u{16}\u{1e}@\u{1e}j\u{1e}”\u{1e}¾\u{1e}é\u{1f}\u{13}\u{1f}>\u{1f}i\u{1f}”\u{1f}¿\u{1f}ê \u{15} A l ˜ Ä ð!\u{1c}!H!u!¡!Î!û\"'\"U\"‚\"¯\"Ý#", AnsiState::default()),
+                asciiblock_empty("ó\u{b}\u{b}\u{b}\"\u{b}9\u{b}Q\u{b}i\u{b}€\u{b}˜\u{b}°\u{b}È\u{b}á\u{b}ù\u{c}\u{12}\u{c}*\u{c}C\u{c}\\\u{c}u\u{c}Ž\u{c}§\u{c}À\u{c}Ù\u{c}ó&@ZtŽ©ÃÞø\u{e}\u{13}\u{e}.\u{e}I\u{e}d\u{e}\u{7f}\u{e}›\u{e}¶\u{e}Ò\u{e}î\u{f}    \u{f}%\u{f}A\u{f}^\u{f}z\u{f}–\u{f}³\u{f}Ï\u{f}ì\u{10}    \u{10}&\u{10}C\u{10}a\u{10}~\u{10}›\u{10}¹\u{10}×\u{10}õ\u{11}\u{13}\u{11}1\u{11}O\u{11}m\u{11}Œ\u{11}ª\u{11}É\u{11}è\u{12}\u{7}\u{12}&\u{12}E\u{12}d\u{12}„\u{12}£\u{12}Ã\u{12}ã\u{13}\u{3}\u{13}#\u{13}C\u{13}c\u{13}ƒ\u{13}¤\u{13}Å\u{13}å\u{14}\u{6}\u{14}'\u{14}I\u{14}j\u{14}‹\u{14}\u{ad}\u{14}Î\u{14}ð\u{15}\u{12}\u{15}4\u{15}V\u{15}x\u{15}›\u{15}½\u{15}à\u{16}\u{3}\u{16}&\u{16}I\u{16}l\u{16}\u{8f}\u{16}²\u{16}Ö\u{16}ú\u{17}\u{1d}\u{17}A\u{17}e\u{17}‰\u{17}®\u{17}Ò\u{17}÷\u{18}"),
+                asciiblock_empty("\u{1b}\u{18}@\u{18}e\u{18}Š\u{18}¯\u{18}Õ\u{18}ú\u{19} \u{19}E\u{19}k\u{19}‘\u{19}·\u{19}Ý\u{1a}\u{4}\u{1a}*\u{1a}Q\u{1a}w\u{1a}ž\u{1a}Å\u{1a}ì"),
+                asciiblock_empty("\u{1b}\u{14}"),
+                asciiblock_empty("\u{1b};\u{1b}c\u{1b}Š"),
+                asciiblock_empty("\u{1b}²"),
+                asciiblock_empty("\u{1b}Ú\u{1c}\u{2}\u{1c}*\u{1c}R\u{1c}{\u{1c}£\u{1c}Ì\u{1c}õ\u{1d}\u{1e}\u{1d}G\u{1d}p\u{1d}™\u{1d}Ã\u{1d}ì\u{1e}\u{16}\u{1e}@\u{1e}j\u{1e}”\u{1e}¾\u{1e}é\u{1f}\u{13}\u{1f}>\u{1f}i\u{1f}”\u{1f}¿\u{1f}ê \u{15} A l ˜ Ä ð!\u{1c}!H!u!¡!Î!û\"'\"U\"‚\"¯\"Ý#"),
             ],
         );
 
         let stripped = AnsiStr::ansi_strip(text);
-
         assert_eq!(stripped, "ó\u{b}\u{b}\u{b}\"\u{b}9\u{b}Q\u{b}i\u{b}€\u{b}˜\u{b}°\u{b}È\u{b}á\u{b}ù\u{c}\u{12}\u{c}*\u{c}C\u{c}\\\u{c}u\u{c}Ž\u{c}§\u{c}À\u{c}Ù\u{c}ó&@ZtŽ©ÃÞø\u{e}\u{13}\u{e}.\u{e}I\u{e}d\u{e}\u{7f}\u{e}›\u{e}¶\u{e}Ò\u{e}î\u{f}    \u{f}%\u{f}A\u{f}^\u{f}z\u{f}–\u{f}³\u{f}Ï\u{f}ì\u{10}    \u{10}&\u{10}C\u{10}a\u{10}~\u{10}›\u{10}¹\u{10}×\u{10}õ\u{11}\u{13}\u{11}1\u{11}O\u{11}m\u{11}Œ\u{11}ª\u{11}É\u{11}è\u{12}\u{7}\u{12}&\u{12}E\u{12}d\u{12}„\u{12}£\u{12}Ã\u{12}ã\u{13}\u{3}\u{13}#\u{13}C\u{13}c\u{13}ƒ\u{13}¤\u{13}Å\u{13}å\u{14}\u{6}\u{14}'\u{14}I\u{14}j\u{14}‹\u{14}\u{ad}\u{14}Î\u{14}ð\u{15}\u{12}\u{15}4\u{15}V\u{15}x\u{15}›\u{15}½\u{15}à\u{16}\u{3}\u{16}&\u{16}I\u{16}l\u{16}\u{8f}\u{16}²\u{16}Ö\u{16}ú\u{17}\u{1d}\u{17}A\u{17}e\u{17}‰\u{17}®\u{17}Ò\u{17}÷\u{18}\u{18}@\u{18}e\u{18}Š\u{18}¯\u{18}Õ\u{18}ú\u{19} \u{19}E\u{19}k\u{19}‘\u{19}·\u{19}Ý\u{1a}\u{4}\u{1a}*\u{1a}Q\u{1a}w\u{1a}ž\u{1a}Å\u{1a}ì\u{14}Š²\u{1c}{\u{1c}£\u{1c}Ì\u{1c}õ\u{1d}\u{1e}\u{1d}G\u{1d}p\u{1d}™\u{1d}Ã\u{1d}ì\u{1e}\u{16}\u{1e}@\u{1e}j\u{1e}”\u{1e}¾\u{1e}é\u{1f}\u{13}\u{1f}>\u{1f}i\u{1f}”\u{1f}¿\u{1f}ê \u{15} A l ˜ Ä ð!\u{1c}!H!u!¡!Î!û\"'\"U\"‚\"¯\"Ý#");
     }
 
@@ -2960,17 +2999,15 @@ mod tests {
         let text = "ó\u{b}\u{b}\u{b}\"\u{b}9\u{b}Q\u{b}i\u{b}€\u{b}˜\u{b}°\u{b}È\u{b}á\u{b}ù\u{c}\u{12}\u{c}*\u{c}C\u{c}\\\u{c}u\u{c}Ž\u{c}§\u{c}À\u{c}Ù\u{c}ó&@ZtŽ©ÃÞø\u{e}\u{13}\u{e}.\u{e}I\u{e}d\u{e}\u{7f}\u{e}›\u{e}¶\u{e}Ò\u{e}î\u{f}    \u{f}%\u{f}A\u{f}^\u{f}z\u{f}–\u{f}³\u{f}Ï\u{f}ì\u{10}    \u{10}&\u{10}C\u{10}a\u{10}~\u{10}›\u{10}¹\u{10}×\u{10}õ\u{11}\u{13}\u{11}1\u{11}O\u{11}m\u{11}Œ\u{11}ª\u{11}É\u{11}è\u{12}\u{7}\u{12}&\u{12}E\u{12}d\u{12}„\u{12}£\u{12}Ã\u{12}ã\u{13}\u{3}\u{13}#\u{13}C\u{13}c\u{13}ƒ\u{13}¤\u{13}Å\u{13}å\u{14}\u{6}\u{14}'\u{14}I\u{14}j\u{14}‹\u{14}\u{ad}\u{14}Î\u{14}ð\u{15}\u{12}\u{15}4\u{15}V\u{15}x\u{15}›\u{15}½\u{15}à\u{16}\u{3}\u{16}&\u{16}I\u{16}l\u{16}\u{8f}\u{16}²\u{16}Ö\u{16}ú\u{17}\u{1d}\u{17}A\u{17}e\u{17}‰\u{17}®\u{17}Ò\u{17}÷\u{18}\u{18}@\u{18}e\u{18}Š\u{18}¯\u{18}Õ\u{18}ú\u{19} \u{19}E\u{19}k\u{19}‘\u{19}·\u{19}Ý\u{1a}\u{4}\u{1a}*\u{1a}Q\u{1a}w\u{1a}ž\u{1a}Å\u{1a}ì\u{14}Š²\u{1b}Ú\u{1c}\u{1c}{\u{1c}£\u{1c}Ì\u{1c}õ\u{1d}\u{1e}\u{1d}G\u{1d}p\u{1d}™\u{1d}Ã\u{1d}ì\u{1e}\u{16}\u{1e}@\u{1e}j\u{1e}”\u{1e}¾\u{1e}é\u{1f}\u{13}\u{1f}>\u{1f}i\u{1f}”\u{1f}¿\u{1f}ê \u{15} A l ˜ Ä ð!\u{1c}!H!u!¡!Î!û\"'\"U\"‚\"¯\"Ý#";
 
         let blocks = get_blocks(text).collect::<Vec<_>>();
-
         assert_eq!(
             blocks,
             vec![
-                AnsiBlock::new("ó\u{b}\u{b}\u{b}\"\u{b}9\u{b}Q\u{b}i\u{b}€\u{b}˜\u{b}°\u{b}È\u{b}á\u{b}ù\u{c}\u{12}\u{c}*\u{c}C\u{c}\\\u{c}u\u{c}Ž\u{c}§\u{c}À\u{c}Ù\u{c}ó&@ZtŽ©ÃÞø\u{e}\u{13}\u{e}.\u{e}I\u{e}d\u{e}\u{7f}\u{e}›\u{e}¶\u{e}Ò\u{e}î\u{f}    \u{f}%\u{f}A\u{f}^\u{f}z\u{f}–\u{f}³\u{f}Ï\u{f}ì\u{10}    \u{10}&\u{10}C\u{10}a\u{10}~\u{10}›\u{10}¹\u{10}×\u{10}õ\u{11}\u{13}\u{11}1\u{11}O\u{11}m\u{11}Œ\u{11}ª\u{11}É\u{11}è\u{12}\u{7}\u{12}&\u{12}E\u{12}d\u{12}„\u{12}£\u{12}Ã\u{12}ã\u{13}\u{3}\u{13}#\u{13}C\u{13}c\u{13}ƒ\u{13}¤\u{13}Å\u{13}å\u{14}\u{6}\u{14}'\u{14}I\u{14}j\u{14}‹\u{14}\u{ad}\u{14}Î\u{14}ð\u{15}\u{12}\u{15}4\u{15}V\u{15}x\u{15}›\u{15}½\u{15}à\u{16}\u{3}\u{16}&\u{16}I\u{16}l\u{16}\u{8f}\u{16}²\u{16}Ö\u{16}ú\u{17}\u{1d}\u{17}A\u{17}e\u{17}‰\u{17}®\u{17}Ò\u{17}÷\u{18}\u{18}@\u{18}e\u{18}Š\u{18}¯\u{18}Õ\u{18}ú\u{19} \u{19}E\u{19}k\u{19}‘\u{19}·\u{19}Ý\u{1a}\u{4}\u{1a}*\u{1a}Q\u{1a}w\u{1a}ž\u{1a}Å\u{1a}ì\u{14}Š²", AnsiState::default()),
-                AnsiBlock::new("\u{1b}Ú\u{1c}\u{1c}{\u{1c}£\u{1c}Ì\u{1c}õ\u{1d}\u{1e}\u{1d}G\u{1d}p\u{1d}™\u{1d}Ã\u{1d}ì\u{1e}\u{16}\u{1e}@\u{1e}j\u{1e}”\u{1e}¾\u{1e}é\u{1f}\u{13}\u{1f}>\u{1f}i\u{1f}”\u{1f}¿\u{1f}ê \u{15} A l ˜ Ä ð!\u{1c}!H!u!¡!Î!û\"'\"U\"‚\"¯\"Ý#", AnsiState::default()),
+                asciiblock_empty("ó\u{b}\u{b}\u{b}\"\u{b}9\u{b}Q\u{b}i\u{b}€\u{b}˜\u{b}°\u{b}È\u{b}á\u{b}ù\u{c}\u{12}\u{c}*\u{c}C\u{c}\\\u{c}u\u{c}Ž\u{c}§\u{c}À\u{c}Ù\u{c}ó&@ZtŽ©ÃÞø\u{e}\u{13}\u{e}.\u{e}I\u{e}d\u{e}\u{7f}\u{e}›\u{e}¶\u{e}Ò\u{e}î\u{f}    \u{f}%\u{f}A\u{f}^\u{f}z\u{f}–\u{f}³\u{f}Ï\u{f}ì\u{10}    \u{10}&\u{10}C\u{10}a\u{10}~\u{10}›\u{10}¹\u{10}×\u{10}õ\u{11}\u{13}\u{11}1\u{11}O\u{11}m\u{11}Œ\u{11}ª\u{11}É\u{11}è\u{12}\u{7}\u{12}&\u{12}E\u{12}d\u{12}„\u{12}£\u{12}Ã\u{12}ã\u{13}\u{3}\u{13}#\u{13}C\u{13}c\u{13}ƒ\u{13}¤\u{13}Å\u{13}å\u{14}\u{6}\u{14}'\u{14}I\u{14}j\u{14}‹\u{14}\u{ad}\u{14}Î\u{14}ð\u{15}\u{12}\u{15}4\u{15}V\u{15}x\u{15}›\u{15}½\u{15}à\u{16}\u{3}\u{16}&\u{16}I\u{16}l\u{16}\u{8f}\u{16}²\u{16}Ö\u{16}ú\u{17}\u{1d}\u{17}A\u{17}e\u{17}‰\u{17}®\u{17}Ò\u{17}÷\u{18}\u{18}@\u{18}e\u{18}Š\u{18}¯\u{18}Õ\u{18}ú\u{19} \u{19}E\u{19}k\u{19}‘\u{19}·\u{19}Ý\u{1a}\u{4}\u{1a}*\u{1a}Q\u{1a}w\u{1a}ž\u{1a}Å\u{1a}ì\u{14}Š²"),
+                asciiblock_empty("\u{1b}Ú\u{1c}\u{1c}{\u{1c}£\u{1c}Ì\u{1c}õ\u{1d}\u{1e}\u{1d}G\u{1d}p\u{1d}™\u{1d}Ã\u{1d}ì\u{1e}\u{16}\u{1e}@\u{1e}j\u{1e}”\u{1e}¾\u{1e}é\u{1f}\u{13}\u{1f}>\u{1f}i\u{1f}”\u{1f}¿\u{1f}ê \u{15} A l ˜ Ä ð!\u{1c}!H!u!¡!Î!û\"'\"U\"‚\"¯\"Ý#"),
             ],
         );
 
         let stripped = AnsiStr::ansi_strip(text);
-
         assert_eq!(stripped, "ó\u{b}\u{b}\u{b}\"\u{b}9\u{b}Q\u{b}i\u{b}€\u{b}˜\u{b}°\u{b}È\u{b}á\u{b}ù\u{c}\u{12}\u{c}*\u{c}C\u{c}\\\u{c}u\u{c}Ž\u{c}§\u{c}À\u{c}Ù\u{c}ó&@ZtŽ©ÃÞø\u{e}\u{13}\u{e}.\u{e}I\u{e}d\u{e}\u{7f}\u{e}›\u{e}¶\u{e}Ò\u{e}î\u{f}    \u{f}%\u{f}A\u{f}^\u{f}z\u{f}–\u{f}³\u{f}Ï\u{f}ì\u{10}    \u{10}&\u{10}C\u{10}a\u{10}~\u{10}›\u{10}¹\u{10}×\u{10}õ\u{11}\u{13}\u{11}1\u{11}O\u{11}m\u{11}Œ\u{11}ª\u{11}É\u{11}è\u{12}\u{7}\u{12}&\u{12}E\u{12}d\u{12}„\u{12}£\u{12}Ã\u{12}ã\u{13}\u{3}\u{13}#\u{13}C\u{13}c\u{13}ƒ\u{13}¤\u{13}Å\u{13}å\u{14}\u{6}\u{14}'\u{14}I\u{14}j\u{14}‹\u{14}\u{ad}\u{14}Î\u{14}ð\u{15}\u{12}\u{15}4\u{15}V\u{15}x\u{15}›\u{15}½\u{15}à\u{16}\u{3}\u{16}&\u{16}I\u{16}l\u{16}\u{8f}\u{16}²\u{16}Ö\u{16}ú\u{17}\u{1d}\u{17}A\u{17}e\u{17}‰\u{17}®\u{17}Ò\u{17}÷\u{18}\u{18}@\u{18}e\u{18}Š\u{18}¯\u{18}Õ\u{18}ú\u{19} \u{19}E\u{19}k\u{19}‘\u{19}·\u{19}Ý\u{1a}\u{4}\u{1a}*\u{1a}Q\u{1a}w\u{1a}ž\u{1a}Å\u{1a}ì\u{14}Š²\u{1c}£\u{1c}Ì\u{1c}õ\u{1d}\u{1e}\u{1d}G\u{1d}p\u{1d}™\u{1d}Ã\u{1d}ì\u{1e}\u{16}\u{1e}@\u{1e}j\u{1e}”\u{1e}¾\u{1e}é\u{1f}\u{13}\u{1f}>\u{1f}i\u{1f}”\u{1f}¿\u{1f}ê \u{15} A l ˜ Ä ð!\u{1c}!H!u!¡!Î!û\"'\"U\"‚\"¯\"Ý#");
     }
 
@@ -2979,17 +3016,14 @@ mod tests {
         let text = r#"{£ÌõGp™Ãì@j”¾é>i”¿ê  A l ˜ Ä ð!!H!u!¡!Î!û"'"U"‚"¯"Ý#"#;
 
         let blocks = get_blocks(text).collect::<Vec<_>>();
-
         assert_eq!(
             blocks,
-            vec![AnsiBlock::new(
-                "{£ÌõGp™Ãì@j”¾é>i”¿ê  A l ˜ Ä ð!!H!u!¡!Î!û\"'\"U\"‚\"¯\"Ý#",
-                AnsiState::default()
-            ),],
+            vec![asciiblock_empty(
+                "{£ÌõGp™Ãì@j”¾é>i”¿ê  A l ˜ Ä ð!!H!u!¡!Î!û\"'\"U\"‚\"¯\"Ý#"
+            )],
         );
 
         let stripped = AnsiStr::ansi_strip(text);
-
         assert_eq!(
             stripped,
             "{£ÌõGp™Ãì@j”¾é>i”¿ê  A l ˜ Ä ð!!H!u!¡!Î!û\"'\"U\"‚\"¯\"Ý#"
@@ -3002,23 +3036,22 @@ mod tests {
  ½ ÂÊ ,Íç 5•• Puu Qww RFF S	Y	w T		 s¹À tôô |öö }øø ~íó     arab       ðghi  "#;
 
         let blocks = get_blocks(text).collect::<Vec<_>>();
-
         assert_eq!(
             blocks,
             vec![
-                AnsiBlock::new(
-                    "\u{3}\u{10}\u{3}\u{16}\u{3}\u{1c}\u{3}\"\u{3}(\u{3}.\u{3}4\u{3}:\u{3}@\u{3}F\u{3}L\u{3}R\u{3}X\u{3}^\u{3}d\u{3}j\u{3}p\u{3}v\u{3}|\u{3}‚\u{3}ˆ\u{3}Ž\u{3}”\u{3}š\u{3}\u{a0}\u{3}¦\u{3}¬\u{3}²\u{3}¸\u{3}¾\u{3}Ä\u{3}Ê\u{3}Ð\u{3}Ö\u{3}Ü\u{3}â\u{3}è\u{3}î\u{3}ô\u{3}ú\u{4}\0\u{4}\u{6}\u{4}\u{c}\u{4}\u{12}\u{4}\u{18}\u{4}\u{1e}\u{4}$\u{4}*\u{4}0\0\u{2}\u{2}\u{8d}\u{b}×\0\u{2}\u{2}Ž\u{b}×\0\u{2}\u{2}\u{8f}\u{b}×\0\u{2}\u{2}\u{90}\u{b}×\0\u{2}\u{2}‘\u{b}×\0\u{2}\u{2}’\u{b}×\0\u{2}\u{2}“\u{b}×\0\u{2}\u{2}”\u{b}×\0\u{2}\u{2}•\u{b}×\0\u{2}\u{2}–\u{b}×\0\u{2}\u{2}—\u{b}×\0\u{2}\u{2}˜\u{b}×\0\u{2}\u{2}™\u{b}×\0\u{2}\u{2}›\u{b}×\0\u{2}\u{2}\u{a0}\u{b}×\0\u{2}\u{2}¡\u{b}×\0\u{2}\u{2}¢\u{b}×\0\u{2}\u{2}£\u{b}×\0\u{2}\u{2}¤\u{b}×\0\u{2}\u{2}¥\u{b}×\0\u{2}\u{2}¦\u{b}×\0\u{2}\u{2}§\u{b}×\0\u{2}\u{2}¨\u{b}×\0\u{2}\u{2}©\u{b}×\0\u{2}\u{2}ª\u{b}×\0\u{2}\u{2}«\u{b}×\0\u{2}\u{2}¬\u{b}×\0\u{2}\u{2}\u{ad}\u{b}×\0\u{2}\u{2}®\u{b}×\0\u{2}\u{2}¯\u{b}×\0\u{2}\u{2}°\u{b}×\0\u{2}\u{2}±\u{b}×\0\u{2}\u{2}²\u{b}×\0\u{2}\u{2}³\u{b}×\0\u{2}\u{2}´\u{b}×\0\u{2}\u{2}µ\u{b}×\0\u{2}\u{2}¶\u{b}×\0\u{2}\u{2}·\u{b}×\0\u{2}\u{2}¸\u{b}×\0\u{2}\u{2}¹\u{b}×\0\u{2}\u{2}º\u{b}×\0\u{2}\u{2}»\u{b}×\0\u{2}\u{2}¼\u{b}×\0\u{2}\u{2}½\u{b}×\0\u{2}\u{2}Â\u{b}×\0\u{2}\u{2}Ã\u{b}×\0\u{2}\u{2}Ä\u{b}×\0\u{2}\u{2}Å\u{b}×\0\u{2}\u{2}Æ\u{b}×\0\u{2}\u{2}Ç\u{b}×\0\u{2}\u{2}È\u{b}×\0\u{2}\u{2}É\u{b}×\0\u{2}\u{2}Ê\u{b}×\0\u{2}\u{2}Í\u{b}×\0\u{2}\u{2}Î\u{b}×\0\u{2}\u{2}Ï\u{b}×\0\u{2}\u{2}Ð\u{b}×\0\u{2}\u{2}Ñ\u{b}×\0\u{2}\u{2}Ò\u{b}×\0\u{2}\u{2}Ó\u{b}×\0\u{2}\u{2}Ô\u{b}×\0\u{2}\u{2}Õ\u{b}×\0\u{2}\u{2}Ö\u{b}×\0\u{2}\u{2}×\u{b}×\0\u{2}\u{2}Ø\u{b}×\0\u{2}\u{2}Ù\u{b}×\0\u{2}\u{2}Ú\u{b}×\0\u{2}\u{2}Û\u{b}×\0\u{2}\u{2}Ü\u{b}×\0\u{2}\u{2}Ý\u{b}×\0\u{2}\u{2}Þ\u{b}×\0\u{2}\u{2}ß\u{b}×\0\u{2}\u{2}à\u{b}×\0\u{2}\u{2}á\u{b}×\0\u{2}\u{2}â\u{b}×\0\u{2}\u{2}ã\u{b}×\0\u{2}\u{2}ä\u{b}×\0\u{2}\u{2}å\u{b}×\0\u{2}\u{2}æ\u{b}×\0\u{2}\u{2}ç\u{b}×\0\u{2}\u{4}•\u{b}×\0\u{2}\u{6}u\u{b}×\0\u{2}\u{6}w\u{b}×\0\u{2}\u{8}F\u{b}×\0\u{2}\tY\u{b}×\0\u{2}\tZ\u{b}×\0\u{2}\t[\u{b}×\0\u{2}\t\\\u{b}×\0\u{2}\t]\u{b}×\0\u{2}\t^\u{b}×\0\u{2}\t_\u{b}×\0\u{2}\t`\u{b}×\0\u{2}\ta\u{b}×\0\u{2}\tb\u{b}×\0\u{2}\tc\u{b}×\0\u{2}\td\u{b}×\0\u{2}\te\u{b}×\0\u{2}\tf\u{b}×\0\u{2}\tg\u{b}×\0\u{2}\th\u{b}×\0\u{2}\ti\u{b}×\0\u{2}\tj\u{b}×\0\u{2}\tk\u{b}×\0\u{2}\tl\u{b}×\0\u{2}\tm\u{b}×\0\u{2}\tn\u{b}×\0\u{2}\to\u{b}×\0\u{2}\tp\u{b}×\0\u{2}\tq\u{b}×\0\u{2}\tr\u{b}×\0\u{2}\ts\u{b}×\0\u{2}\tt\u{b}×\0\u{2}\tu\u{b}×\0\u{2}\tv\u{b}×\0\u{2}\tw\u{b}×\0\u{2}\u{b}\t\u{b}×\0\u{2}\u{b}¹\u{b}×\0\u{2}\u{b}º\u{b}×\0\u{2}\u{b}»\u{b}×\0\u{2}\u{b}¼\u{b}×\0\u{2}\u{b}½\u{b}×\0\u{2}\u{b}¾\u{b}×\0\u{2}\u{b}¿\u{b}×\0\u{2}\u{b}À\u{b}×\0\u{2}\u{b}ô\u{b}×\0\u{2}\u{b}ö\u{b}×\0\u{2}\u{b}ø\u{b}×\0\u{2}\u{f}í\u{b}×\0\u{2}\u{f}î\u{b}×\0\u{2}\u{f}ï\u{b}×\0\u{2}\u{f}ð\u{b}×\0\u{2}\u{f}ñ\u{b}×\0\u{2}\u{f}ò\u{b}×\0\u{2}\u{f}ó\u{b}×\0\u{2}\0\u{10}\u{2}\u{8d}\u{2}™\0\0\u{2}›\u{2}›\0\n\u{2}\u{a0}\u{2}½\0\u{e}\u{2}Â\u{2}Ê\0,\u{2}Í\u{2}ç\05\u{4}•\u{4}•\0P\u{6}u\u{6}u\0Q\u{6}w\u{6}w\0R\u{8}F\u{8}F\0S\tY\tw\0T\u{b}\t\u{b}\t\0s\u{b}¹\u{b}À\0t\u{b}ô\u{b}ô\0|\u{b}ö\u{b}ö\0}\u{b}ø\u{b}ø\0~\u{f}í\u{f}ó\0\u{7f}\0\u{1}\0\0\0\u{1}arab\0\u{c}\0\u{6}\0\0\0\0\0\u{5}\u{2}ð\u{3}",
-                    AnsiState::default()
-                ),
-                AnsiBlock::new("\u{1b}\u{4}g\u{4}h\u{4}i\0\0", AnsiState::default()),
+                asciiblock_empty("\u{3}\u{10}\u{3}\u{16}\u{3}\u{1c}\u{3}\"\u{3}(\u{3}.\u{3}4\u{3}:\u{3}@\u{3}F\u{3}L\u{3}R\u{3}X\u{3}^\u{3}d\u{3}j\u{3}p\u{3}v\u{3}|\u{3}‚\u{3}ˆ\u{3}Ž\u{3}”\u{3}š\u{3}\u{a0}\u{3}¦\u{3}¬\u{3}²\u{3}¸\u{3}¾\u{3}Ä\u{3}Ê\u{3}Ð\u{3}Ö\u{3}Ü\u{3}â\u{3}è\u{3}î\u{3}ô\u{3}ú\u{4}\0\u{4}\u{6}\u{4}\u{c}\u{4}\u{12}\u{4}\u{18}\u{4}\u{1e}\u{4}$\u{4}*\u{4}0\0\u{2}\u{2}\u{8d}\u{b}×\0\u{2}\u{2}Ž\u{b}×\0\u{2}\u{2}\u{8f}\u{b}×\0\u{2}\u{2}\u{90}\u{b}×\0\u{2}\u{2}‘\u{b}×\0\u{2}\u{2}’\u{b}×\0\u{2}\u{2}“\u{b}×\0\u{2}\u{2}”\u{b}×\0\u{2}\u{2}•\u{b}×\0\u{2}\u{2}–\u{b}×\0\u{2}\u{2}—\u{b}×\0\u{2}\u{2}˜\u{b}×\0\u{2}\u{2}™\u{b}×\0\u{2}\u{2}›\u{b}×\0\u{2}\u{2}\u{a0}\u{b}×\0\u{2}\u{2}¡\u{b}×\0\u{2}\u{2}¢\u{b}×\0\u{2}\u{2}£\u{b}×\0\u{2}\u{2}¤\u{b}×\0\u{2}\u{2}¥\u{b}×\0\u{2}\u{2}¦\u{b}×\0\u{2}\u{2}§\u{b}×\0\u{2}\u{2}¨\u{b}×\0\u{2}\u{2}©\u{b}×\0\u{2}\u{2}ª\u{b}×\0\u{2}\u{2}«\u{b}×\0\u{2}\u{2}¬\u{b}×\0\u{2}\u{2}\u{ad}\u{b}×\0\u{2}\u{2}®\u{b}×\0\u{2}\u{2}¯\u{b}×\0\u{2}\u{2}°\u{b}×\0\u{2}\u{2}±\u{b}×\0\u{2}\u{2}²\u{b}×\0\u{2}\u{2}³\u{b}×\0\u{2}\u{2}´\u{b}×\0\u{2}\u{2}µ\u{b}×\0\u{2}\u{2}¶\u{b}×\0\u{2}\u{2}·\u{b}×\0\u{2}\u{2}¸\u{b}×\0\u{2}\u{2}¹\u{b}×\0\u{2}\u{2}º\u{b}×\0\u{2}\u{2}»\u{b}×\0\u{2}\u{2}¼\u{b}×\0\u{2}\u{2}½\u{b}×\0\u{2}\u{2}Â\u{b}×\0\u{2}\u{2}Ã\u{b}×\0\u{2}\u{2}Ä\u{b}×\0\u{2}\u{2}Å\u{b}×\0\u{2}\u{2}Æ\u{b}×\0\u{2}\u{2}Ç\u{b}×\0\u{2}\u{2}È\u{b}×\0\u{2}\u{2}É\u{b}×\0\u{2}\u{2}Ê\u{b}×\0\u{2}\u{2}Í\u{b}×\0\u{2}\u{2}Î\u{b}×\0\u{2}\u{2}Ï\u{b}×\0\u{2}\u{2}Ð\u{b}×\0\u{2}\u{2}Ñ\u{b}×\0\u{2}\u{2}Ò\u{b}×\0\u{2}\u{2}Ó\u{b}×\0\u{2}\u{2}Ô\u{b}×\0\u{2}\u{2}Õ\u{b}×\0\u{2}\u{2}Ö\u{b}×\0\u{2}\u{2}×\u{b}×\0\u{2}\u{2}Ø\u{b}×\0\u{2}\u{2}Ù\u{b}×\0\u{2}\u{2}Ú\u{b}×\0\u{2}\u{2}Û\u{b}×\0\u{2}\u{2}Ü\u{b}×\0\u{2}\u{2}Ý\u{b}×\0\u{2}\u{2}Þ\u{b}×\0\u{2}\u{2}ß\u{b}×\0\u{2}\u{2}à\u{b}×\0\u{2}\u{2}á\u{b}×\0\u{2}\u{2}â\u{b}×\0\u{2}\u{2}ã\u{b}×\0\u{2}\u{2}ä\u{b}×\0\u{2}\u{2}å\u{b}×\0\u{2}\u{2}æ\u{b}×\0\u{2}\u{2}ç\u{b}×\0\u{2}\u{4}•\u{b}×\0\u{2}\u{6}u\u{b}×\0\u{2}\u{6}w\u{b}×\0\u{2}\u{8}F\u{b}×\0\u{2}\tY\u{b}×\0\u{2}\tZ\u{b}×\0\u{2}\t[\u{b}×\0\u{2}\t\\\u{b}×\0\u{2}\t]\u{b}×\0\u{2}\t^\u{b}×\0\u{2}\t_\u{b}×\0\u{2}\t`\u{b}×\0\u{2}\ta\u{b}×\0\u{2}\tb\u{b}×\0\u{2}\tc\u{b}×\0\u{2}\td\u{b}×\0\u{2}\te\u{b}×\0\u{2}\tf\u{b}×\0\u{2}\tg\u{b}×\0\u{2}\th\u{b}×\0\u{2}\ti\u{b}×\0\u{2}\tj\u{b}×\0\u{2}\tk\u{b}×\0\u{2}\tl\u{b}×\0\u{2}\tm\u{b}×\0\u{2}\tn\u{b}×\0\u{2}\to\u{b}×\0\u{2}\tp\u{b}×\0\u{2}\tq\u{b}×\0\u{2}\tr\u{b}×\0\u{2}\ts\u{b}×\0\u{2}\tt\u{b}×\0\u{2}\tu\u{b}×\0\u{2}\tv\u{b}×\0\u{2}\tw\u{b}×\0\u{2}\u{b}\t\u{b}×\0\u{2}\u{b}¹\u{b}×\0\u{2}\u{b}º\u{b}×\0\u{2}\u{b}»\u{b}×\0\u{2}\u{b}¼\u{b}×\0\u{2}\u{b}½\u{b}×\0\u{2}\u{b}¾\u{b}×\0\u{2}\u{b}¿\u{b}×\0\u{2}\u{b}À\u{b}×\0\u{2}\u{b}ô\u{b}×\0\u{2}\u{b}ö\u{b}×\0\u{2}\u{b}ø\u{b}×\0\u{2}\u{f}í\u{b}×\0\u{2}\u{f}î\u{b}×\0\u{2}\u{f}ï\u{b}×\0\u{2}\u{f}ð\u{b}×\0\u{2}\u{f}ñ\u{b}×\0\u{2}\u{f}ò\u{b}×\0\u{2}\u{f}ó\u{b}×\0\u{2}\0\u{10}\u{2}\u{8d}\u{2}™\0\0\u{2}›\u{2}›\0\n\u{2}\u{a0}\u{2}½\0\u{e}\u{2}Â\u{2}Ê\0,\u{2}Í\u{2}ç\05\u{4}•\u{4}•\0P\u{6}u\u{6}u\0Q\u{6}w\u{6}w\0R\u{8}F\u{8}F\0S\tY\tw\0T\u{b}\t\u{b}\t\0s\u{b}¹\u{b}À\0t\u{b}ô\u{b}ô\0|\u{b}ö\u{b}ö\0}\u{b}ø\u{b}ø\0~\u{f}í\u{f}ó\0\u{7f}\0\u{1}\0\0\0\u{1}arab\0\u{c}\0\u{6}\0\0\0\0\0\u{5}\u{2}ð\u{3}"),
+                asciiblock_empty("\u{1b}\u{4}g\u{4}h\u{4}i\0\0"),
             ],
         );
 
         let stripped = AnsiStr::ansi_strip(text);
-
         assert_eq!(
             stripped,
             "\u{3}\u{10}\u{3}\u{16}\u{3}\u{1c}\u{3}\"\u{3}(\u{3}.\u{3}4\u{3}:\u{3}@\u{3}F\u{3}L\u{3}R\u{3}X\u{3}^\u{3}d\u{3}j\u{3}p\u{3}v\u{3}|\u{3}‚\u{3}ˆ\u{3}Ž\u{3}”\u{3}š\u{3}\u{a0}\u{3}¦\u{3}¬\u{3}²\u{3}¸\u{3}¾\u{3}Ä\u{3}Ê\u{3}Ð\u{3}Ö\u{3}Ü\u{3}â\u{3}è\u{3}î\u{3}ô\u{3}ú\u{4}\0\u{4}\u{6}\u{4}\u{c}\u{4}\u{12}\u{4}\u{18}\u{4}\u{1e}\u{4}$\u{4}*\u{4}0\0\u{2}\u{2}\u{8d}\u{b}×\0\u{2}\u{2}Ž\u{b}×\0\u{2}\u{2}\u{8f}\u{b}×\0\u{2}\u{2}\u{90}\u{b}×\0\u{2}\u{2}‘\u{b}×\0\u{2}\u{2}’\u{b}×\0\u{2}\u{2}“\u{b}×\0\u{2}\u{2}”\u{b}×\0\u{2}\u{2}•\u{b}×\0\u{2}\u{2}–\u{b}×\0\u{2}\u{2}—\u{b}×\0\u{2}\u{2}˜\u{b}×\0\u{2}\u{2}™\u{b}×\0\u{2}\u{2}›\u{b}×\0\u{2}\u{2}\u{a0}\u{b}×\0\u{2}\u{2}¡\u{b}×\0\u{2}\u{2}¢\u{b}×\0\u{2}\u{2}£\u{b}×\0\u{2}\u{2}¤\u{b}×\0\u{2}\u{2}¥\u{b}×\0\u{2}\u{2}¦\u{b}×\0\u{2}\u{2}§\u{b}×\0\u{2}\u{2}¨\u{b}×\0\u{2}\u{2}©\u{b}×\0\u{2}\u{2}ª\u{b}×\0\u{2}\u{2}«\u{b}×\0\u{2}\u{2}¬\u{b}×\0\u{2}\u{2}\u{ad}\u{b}×\0\u{2}\u{2}®\u{b}×\0\u{2}\u{2}¯\u{b}×\0\u{2}\u{2}°\u{b}×\0\u{2}\u{2}±\u{b}×\0\u{2}\u{2}²\u{b}×\0\u{2}\u{2}³\u{b}×\0\u{2}\u{2}´\u{b}×\0\u{2}\u{2}µ\u{b}×\0\u{2}\u{2}¶\u{b}×\0\u{2}\u{2}·\u{b}×\0\u{2}\u{2}¸\u{b}×\0\u{2}\u{2}¹\u{b}×\0\u{2}\u{2}º\u{b}×\0\u{2}\u{2}»\u{b}×\0\u{2}\u{2}¼\u{b}×\0\u{2}\u{2}½\u{b}×\0\u{2}\u{2}Â\u{b}×\0\u{2}\u{2}Ã\u{b}×\0\u{2}\u{2}Ä\u{b}×\0\u{2}\u{2}Å\u{b}×\0\u{2}\u{2}Æ\u{b}×\0\u{2}\u{2}Ç\u{b}×\0\u{2}\u{2}È\u{b}×\0\u{2}\u{2}É\u{b}×\0\u{2}\u{2}Ê\u{b}×\0\u{2}\u{2}Í\u{b}×\0\u{2}\u{2}Î\u{b}×\0\u{2}\u{2}Ï\u{b}×\0\u{2}\u{2}Ð\u{b}×\0\u{2}\u{2}Ñ\u{b}×\0\u{2}\u{2}Ò\u{b}×\0\u{2}\u{2}Ó\u{b}×\0\u{2}\u{2}Ô\u{b}×\0\u{2}\u{2}Õ\u{b}×\0\u{2}\u{2}Ö\u{b}×\0\u{2}\u{2}×\u{b}×\0\u{2}\u{2}Ø\u{b}×\0\u{2}\u{2}Ù\u{b}×\0\u{2}\u{2}Ú\u{b}×\0\u{2}\u{2}Û\u{b}×\0\u{2}\u{2}Ü\u{b}×\0\u{2}\u{2}Ý\u{b}×\0\u{2}\u{2}Þ\u{b}×\0\u{2}\u{2}ß\u{b}×\0\u{2}\u{2}à\u{b}×\0\u{2}\u{2}á\u{b}×\0\u{2}\u{2}â\u{b}×\0\u{2}\u{2}ã\u{b}×\0\u{2}\u{2}ä\u{b}×\0\u{2}\u{2}å\u{b}×\0\u{2}\u{2}æ\u{b}×\0\u{2}\u{2}ç\u{b}×\0\u{2}\u{4}•\u{b}×\0\u{2}\u{6}u\u{b}×\0\u{2}\u{6}w\u{b}×\0\u{2}\u{8}F\u{b}×\0\u{2}\tY\u{b}×\0\u{2}\tZ\u{b}×\0\u{2}\t[\u{b}×\0\u{2}\t\\\u{b}×\0\u{2}\t]\u{b}×\0\u{2}\t^\u{b}×\0\u{2}\t_\u{b}×\0\u{2}\t`\u{b}×\0\u{2}\ta\u{b}×\0\u{2}\tb\u{b}×\0\u{2}\tc\u{b}×\0\u{2}\td\u{b}×\0\u{2}\te\u{b}×\0\u{2}\tf\u{b}×\0\u{2}\tg\u{b}×\0\u{2}\th\u{b}×\0\u{2}\ti\u{b}×\0\u{2}\tj\u{b}×\0\u{2}\tk\u{b}×\0\u{2}\tl\u{b}×\0\u{2}\tm\u{b}×\0\u{2}\tn\u{b}×\0\u{2}\to\u{b}×\0\u{2}\tp\u{b}×\0\u{2}\tq\u{b}×\0\u{2}\tr\u{b}×\0\u{2}\ts\u{b}×\0\u{2}\tt\u{b}×\0\u{2}\tu\u{b}×\0\u{2}\tv\u{b}×\0\u{2}\tw\u{b}×\0\u{2}\u{b}\t\u{b}×\0\u{2}\u{b}¹\u{b}×\0\u{2}\u{b}º\u{b}×\0\u{2}\u{b}»\u{b}×\0\u{2}\u{b}¼\u{b}×\0\u{2}\u{b}½\u{b}×\0\u{2}\u{b}¾\u{b}×\0\u{2}\u{b}¿\u{b}×\0\u{2}\u{b}À\u{b}×\0\u{2}\u{b}ô\u{b}×\0\u{2}\u{b}ö\u{b}×\0\u{2}\u{b}ø\u{b}×\0\u{2}\u{f}í\u{b}×\0\u{2}\u{f}î\u{b}×\0\u{2}\u{f}ï\u{b}×\0\u{2}\u{f}ð\u{b}×\0\u{2}\u{f}ñ\u{b}×\0\u{2}\u{f}ò\u{b}×\0\u{2}\u{f}ó\u{b}×\0\u{2}\0\u{10}\u{2}\u{8d}\u{2}™\0\0\u{2}›\u{2}›\0\n\u{2}\u{a0}\u{2}½\0\u{e}\u{2}Â\u{2}Ê\0,\u{2}Í\u{2}ç\05\u{4}•\u{4}•\0P\u{6}u\u{6}u\0Q\u{6}w\u{6}w\0R\u{8}F\u{8}F\0S\tY\tw\0T\u{b}\t\u{b}\t\0s\u{b}¹\u{b}À\0t\u{b}ô\u{b}ô\0|\u{b}ö\u{b}ö\0}\u{b}ø\u{b}ø\0~\u{f}í\u{f}ó\0\u{7f}\0\u{1}\0\0\0\u{1}arab\0\u{c}\0\u{6}\0\0\0\0\0\u{5}\u{2}ð\u{3}\u{4}h\u{4}i\0\0"
         );
+    }
+
+    fn asciiblock_empty(text: &str) -> AnsiBlock<'_> {
+        AnsiBlock::new(text, AnsiState::default())
     }
 }
