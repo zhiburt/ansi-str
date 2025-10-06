@@ -12,4 +12,4 @@ keywords = ["cli", "color", "ansi", "terminal", "ansi_term"]
 categories = ["text-processing", "command-line-interface"]
 
 [dependencies]
-ansitok = "0.3.0"
+ansitok = { git = "https://gitlab.com/zhiburt/ansitok/", rev = "a0b973be983d6e7304ccd608526b0dbaf23006ee" }
